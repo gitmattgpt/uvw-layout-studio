@@ -83,8 +83,9 @@ export function planarUnwrap(geometry: THREE.BufferGeometry) {
     uv[i * 2] = (position.getX(i) - box.min.x) / (size.x || 1);
     uv[i * 2 + 1] = (position.getY(i) - box.min.y) / (size.y || 1);
   }
-  geometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
-  geometry.attributes.uv.needsUpdate = true;
+  const uvAttribute = new THREE.BufferAttribute(uv, 2);
+  uvAttribute.needsUpdate = true;
+  geometry.setAttribute("uv", uvAttribute);
 }
 
 export function applyTexture(root: THREE.Object3D, texture: THREE.Texture | null, wireframe = false) {
