@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { OBJExporter } from "three/examples/jsm/exporters/OBJExporter.js";
 
@@ -49,7 +50,14 @@ export async function loadModel(file: File): Promise<THREE.Group> {
       return gltf.scene;
     } finally { URL.revokeObjectURL(url); }
   }
-  throw new Error("Choose an OBJ, GLB, or glTF file.");
+  if (extension === "stl") {
+    const geometry = new STLLoader().parse(await file.arrayBuffer());
+    geometry.computeVertexNormals();
+    const group = new THREE.Group();
+    group.add(new THREE.Mesh(geometry, new THREE.MeshStandardMaterial()));
+    return group;
+  }
+  throw new Error("Choose an OBJ, GLB, glTF, or STL file. Re-export .3ma files first.");
 }
 
 export function normalizeModel(source: THREE.Object3D): THREE.Group {
@@ -86,6 +94,58 @@ export function planarUnwrap(geometry: THREE.BufferGeometry) {
   const uvAttribute = new THREE.BufferAttribute(uv, 2);
   uvAttribute.needsUpdate = true;
   geometry.setAttribute("uv", uvAttribute);
+}
+
+export function cylindricalUnwrap(geometry: THREE.BufferGeometry) {
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  const position = geometry.getAttribute("position");
+  if (!box || !position) return;
+  const height = box.max.y - box.min.y || 1;
+  const uv = new Float32Array(position.count * 2);
+  for (let index = 0; index < position.count; index += 1) {
+    uv[index * 2] = Math.atan2(position.getZ(index), position.getX(index)) / (Math.PI * 2) + 0.5;
+    uv[index * 2 + 1] = (position.getY(index) - box.min.y) / height;
+  }
+  geometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+}
+
+export function boxUnwrap(geometry: THREE.BufferGeometry) {
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  const position = geometry.getAttribute("position");
+  if (!box || !position) return;
+  const size = box.getSize(new THREE.Vector3());
+  const uv = new Float32Array(position.count * 2);
+  const normal = geometry.getAttribute("normal");
+  for (let index = 0; index < position.count; index += 1) {
+    const x = position.getX(index); const y = position.getY(index); const z = position.getZ(index);
+    const nx = Math.abs(normal?.getX(index) ?? 0); const ny = Math.abs(normal?.getY(index) ?? 0); const nz = Math.abs(normal?.getZ(index) ?? 0);
+    if (nx >= ny && nx >= nz) {
+      uv[index * 2] = (z - box.min.z) / (size.z || 1); uv[index * 2 + 1] = (y - box.min.y) / (size.y || 1);
+    } else if (ny >= nz) {
+      uv[index * 2] = (x - box.min.x) / (size.x || 1); uv[index * 2 + 1] = (z - box.min.z) / (size.z || 1);
+    } else {
+      uv[index * 2] = (x - box.min.x) / (size.x || 1); uv[index * 2 + 1] = (y - box.min.y) / (size.y || 1);
+    }
+  }
+  geometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+}
+
+export function transformUvs(root: THREE.Object3D, transform: { moveX?: number; moveY?: number; rotate?: number; scaleX?: number; scaleY?: number }) {
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    const uv = object.geometry.getAttribute("uv");
+    if (!uv) return;
+    const angle = THREE.MathUtils.degToRad(transform.rotate ?? 0);
+    const cosine = Math.cos(angle); const sine = Math.sin(angle);
+    for (let index = 0; index < uv.count; index += 1) {
+      const x = (uv.getX(index) - 0.5) * (transform.scaleX ?? 1);
+      const y = (uv.getY(index) - 0.5) * (transform.scaleY ?? 1);
+      uv.setXY(index, x * cosine - y * sine + 0.5 + (transform.moveX ?? 0), x * sine + y * cosine + 0.5 + (transform.moveY ?? 0));
+    }
+    uv.needsUpdate = true;
+  });
 }
 
 export function applyTexture(root: THREE.Object3D, texture: THREE.Texture | null, wireframe = false) {
