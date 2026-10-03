@@ -7,3 +7,5 @@
 - [x] Add planar UV generation and UV layout view
 - [x] Add GLB, OBJ package, and UV PNG exports
 - [x] Verify mobile and desktop editor flows
+- [ ] Implement the guide-defined controls and menus, excluding Help
+- [ ] Verify import, editing, materials, and export flows
