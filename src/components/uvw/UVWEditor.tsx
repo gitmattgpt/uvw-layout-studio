@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import {
   Box, BoxSelect, ChevronDown, Download, Eye, Focus, Grid2X2, Image as ImageIcon, Layers3,
   Lock, Map, MousePointer2, Move, Redo2, RotateCcw, Scissors, Shapes, Trash2, Undo2, Unlock, Upload, X, ZoomIn,
@@ -20,7 +20,7 @@ type TransformMode = "Select" | "Move" | "Rotate" | "Scale";
 type MaterialAsset = { file: File; url: string; texture: THREE.Texture };
 type MenuItem = { label: string; disabled?: boolean; active?: boolean; action: () => void };
 const primitives: PrimitiveName[] = ["Box", "Sphere", "Cylinder", "Torus", "Knot", "Plane"];
-const gltfSlots = [
+const gltfSlots: ReadonlyArray<readonly [string, string]> = [
   ["Base Color", "RGB + Alpha"], ["Metallic–Roughness", "B = Metallic, G = Roughness"], ["Normal Map", "Tangent space"],
   ["Occlusion", "Ambient Occlusion"], ["Emissive", "RGB"], ["Clearcoat", "KHR_materials_clearcoat"],
   ["Clearcoat Roughness", "KHR_materials_clearcoat"], ["Clearcoat Normal", "KHR_materials_clearcoat"],
@@ -30,7 +30,7 @@ const gltfSlots = [
   ["Iridescence", "KHR_materials_iridescence"], ["Iridescence Thickness", "KHR_materials_iridescence"],
   ["Anisotropy", "KHR_materials_anisotropy"],
 ];
-const objSlots = [["Diffuse Color", "map_Kd"], ["Specular Color", "map_Ks"], ["Ambient Color", "map_Ka"], ["Specular Highlight / Glossiness", "map_Ns"], ["Alpha / Opacity", "map_d"], ["Bump / Normal", "map_bump / bump"], ["Displacement", "disp"], ["Reflection", "refl"]];
+const objSlots: ReadonlyArray<readonly [string, string]> = [["Diffuse Color", "map_Kd"], ["Specular Color", "map_Ks"], ["Ambient Color", "map_Ka"], ["Specular Highlight / Glossiness", "map_Ns"], ["Alpha / Opacity", "map_d"], ["Bump / Normal", "map_bump / bump"], ["Displacement", "disp"], ["Reflection", "refl"]];
 
 function makePrimitive(name: PrimitiveName) {
   const group = new THREE.Group();
@@ -96,7 +96,7 @@ export function UVWEditor() {
   const confirmTexture = (action: () => void) => { if (textureFile || window.confirm("No texture is loaded. Continue using the checker texture?")) action(); else textureInput.current?.click(); };
   const downloadObjZip = async () => { const zip = new JSZip(); const source = new (await import("three/examples/jsm/exporters/OBJExporter.js")).OBJExporter().parse(object); const textureName = textureFile?.name ?? "texture.png"; zip.file("uvforge-model.obj", source); zip.file("uvforge-model.mtl", `newmtl uvforge_material\nKd 1.0 1.0 1.0\nmap_Kd ${textureName}\n`); if (textureFile) zip.file(textureName, textureFile); downloadBlob(await zip.generateAsync({ type: "blob" }), "uvforge-model.zip"); };
   const mapMenu: MenuItem[] = (["Planar", "Box", "Cylindrical", "Auto Unwrap", "Original"] as MappingMode[]).map((item) => ({ label: item, active: mapping === item, disabled: item === "Original", action: () => applyMapping(item) }));
-  const viewMenu: MenuItem[] = (["front", "back", "left", "right", "top", "bottom"] as ViewName[]).map((item) => ({ label: item[0].toUpperCase() + item.slice(1), active: view === item, action: () => setView(item) }));
+  const viewMenu: MenuItem[] = (["front", "back", "left", "right", "top", "bottom"] as ViewName[]).map((item) => ({ label: `${item.charAt(0).toUpperCase()}${item.slice(1)}`, active: view === item, action: () => setView(item) }));
   const tabs = [["import", Upload, "Import"], ["view", Box, "3D View"], ["uvw", Grid2X2, "UVW"], ["export", Download, "Export"]] as const;
   return <main className="editor-shell">
     <header className="editor-header"><div className="brand-mark"><span>U</span><span>V</span><span>W</span></div><div className="file-status"><strong>{modelName}</strong><span>{notice}</span></div><button className="close-button" type="button" aria-label="Clear workspace" title="Clear workspace" onClick={() => selectPrimitive("Box")}><X /></button></header>

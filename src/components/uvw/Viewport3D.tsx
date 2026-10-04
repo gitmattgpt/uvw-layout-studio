@@ -17,7 +17,7 @@ function CameraRig({ view, focusNonce, locked }: { view: ViewName; focusNonce: n
     camera.zoom = view === "ortho" ? 1.25 : 1;
     camera.updateProjectionMatrix();
     if (controls && "target" in controls) {
-      const orbit = controls as { target: THREE.Vector3; update: () => void };
+      const orbit = controls as unknown as { target: THREE.Vector3; update: () => void };
       orbit.target.set(0, 0, 0); orbit.update();
     }
   }, [camera, controls, view, focusNonce]);
