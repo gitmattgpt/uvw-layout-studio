@@ -1,7 +1,8 @@
 import { Canvas, type ThreeEvent, useThree } from "@react-three/fiber";
 import { Environment, Grid, Lightformer, OrbitControls } from "@react-three/drei";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo } from "react";
 import * as THREE from "three";
+import { selectionOverlay, type Selection } from "@/lib/selection";
 
 export type ViewName = "persp" | "ortho" | "front" | "back" | "left" | "right" | "top" | "bottom";
 
@@ -24,16 +25,23 @@ function CameraRig({ view, focusNonce, locked }: { view: ViewName; focusNonce: n
   return <OrbitControls makeDefault enabled={!locked} enableDamping dampingFactor={0.08} minDistance={2.5} maxDistance={12} />;
 }
 
-function Model({ object, locked, onPick }: { object: THREE.Object3D; locked: boolean; onPick: (mesh: THREE.Mesh) => void }) {
-  const picked = useRef<THREE.Mesh | null>(null);
-  const handlePointer = (event: ThreeEvent<PointerEvent>) => {
-    if (locked || !(event.object instanceof THREE.Mesh)) return;
-    event.stopPropagation(); picked.current = event.object; onPick(event.object);
-  };
-  return <primitive object={object} onPointerDown={handlePointer} />;
+function SelectionHighlight({ object, selection }: { object: THREE.Object3D; selection: Selection }) {
+  const geometry = useMemo(() => selectionOverlay(object, selection), [object, selection]);
+  useEffect(() => () => geometry?.dispose(), [geometry]);
+  if (!geometry || !selection) return null;
+  const color = "#f26b2a";
+  if (selection.element === "Vertex") return <points geometry={geometry} raycast={() => null}><pointsMaterial color={color} size={8} sizeAttenuation={false} depthTest={false} /></points>;
+  return <group>
+    {selection.element !== "Segment" && <mesh geometry={geometry} raycast={() => null} renderOrder={2}><meshBasicMaterial color={color} transparent opacity={0.45} side={THREE.DoubleSide} depthTest={false} polygonOffset polygonOffsetFactor={-1} /></mesh>}
+    <mesh geometry={geometry} raycast={() => null} renderOrder={3}><meshBasicMaterial color={color} wireframe depthTest={false} /></mesh>
+  </group>;
 }
 
-export function Viewport3D({ object, locked, view, focusNonce, onPick }: { object: THREE.Object3D; locked: boolean; view: ViewName; focusNonce: number; onPick: (mesh: THREE.Mesh) => void }) {
+export function Viewport3D({ object, locked, view, focusNonce, selection, onPick }: { object: THREE.Object3D; locked: boolean; view: ViewName; focusNonce: number; selection: Selection; onPick: (mesh: THREE.Mesh, face: number) => void }) {
+  const handleClick = (event: ThreeEvent<MouseEvent>) => {
+    if (locked || !(event.object instanceof THREE.Mesh) || event.faceIndex == null || event.delta > 6) return;
+    event.stopPropagation(); onPick(event.object, event.faceIndex);
+  };
   return (
     <div className="h-full min-h-0 w-full">
       <Canvas dpr={[1, 1.5]} orthographic={view === "ortho"} camera={view === "ortho" ? { position: [4.8, 3.8, 5.8], zoom: 125 } : { position: [4.8, 3.8, 5.8], fov: 42 }} gl={{ antialias: true }}>
@@ -45,7 +53,8 @@ export function Viewport3D({ object, locked, view, focusNonce, onPick }: { objec
           <Lightformer intensity={1} color="#aeb9a4" position={[-5, 1, -1]} rotation-y={Math.PI / 2} scale={[10, 2, 1]} />
         </Environment>
         <Grid args={[30, 30]} position={[0, -1.8, 0]} cellSize={1} cellThickness={0.5} cellColor="#30343a" sectionSize={5} sectionColor="#42474f" fadeDistance={22} infiniteGrid />
-        <Model object={object} locked={locked} onPick={onPick} />
+        <primitive object={object} onClick={handleClick} />
+        <SelectionHighlight object={object} selection={selection} />
         <CameraRig view={view} focusNonce={focusNonce} locked={locked} />
       </Canvas>
     </div>
