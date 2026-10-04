@@ -60,6 +60,17 @@ button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .tool-button { flex: 0 0 54px; height: 50px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); display: grid; place-items: center; cursor: pointer; }
 .tool-button svg { width: 21px; height: 21px; stroke-width: 1.8; }
 .tool-button.is-active { color: var(--primary); border-color: color-mix(in oklab, var(--primary) 52%, var(--border)); }
+.tool-button:disabled { opacity: .38; cursor: not-allowed; }
+.tool-menu-wrap { position: relative; flex: 0 0 auto; }
+.menu-caret { position: absolute; right: 3px; bottom: 3px; width: 10px !important; height: 10px !important; color: var(--quiet); }
+.tool-popover { position: absolute; z-index: 25; top: calc(100% + 7px); left: 0; width: max-content; min-width: 170px; max-height: min(360px, 55dvh); overflow: auto; padding: 5px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--popover); box-shadow: 0 14px 36px color-mix(in oklab, var(--workspace) 88%, transparent); }
+.tool-popover button { display: block; width: 100%; min-height: 40px; padding: 0 12px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; font-family: var(--font-mono); font-size: 11px; }
+.tool-popover button:hover, .tool-popover button.is-active { color: var(--primary); background: color-mix(in oklab, var(--primary) 10%, transparent); }
+.tool-popover button:disabled { color: var(--quiet); opacity: .45; cursor: not-allowed; }
+.number-bar { min-height: 54px; display: flex; justify-content: center; align-items: center; gap: 8px; padding: 7px 12px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.number-bar label { display: flex; align-items: center; gap: 9px; color: var(--quiet); font-family: var(--font-mono); font-size: 11px; }
+.number-bar input { width: 90px; height: 38px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--workspace); color: var(--foreground); padding: 0 10px; }
+.number-bar button { height: 38px; border: 0; border-radius: var(--radius); background: var(--primary); color: var(--primary-foreground); padding: 0 16px; cursor: pointer; }
 .workspace { min-height: 0; overflow: auto; background: var(--workspace); }
 .import-panel { min-height: 100%; padding: clamp(70px, 11vh, 135px) 22px 40px; text-align: center; }
 .intro .eyebrow, .export-panel .eyebrow { display: inline-block; color: var(--primary); font-family: var(--font-mono); text-transform: uppercase; font-size: 11px; letter-spacing: 0; margin-bottom: 12px; }
@@ -78,10 +89,14 @@ button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .primitive-grid button { min-height: 54px; border: 1px solid var(--border); border-radius: var(--radius); background: transparent; color: color-mix(in oklab, var(--foreground) 75%, var(--quiet)); cursor: pointer; }
 .primitive-grid button:hover, .primitive-grid button.is-selected { border-color: var(--primary); color: var(--foreground); background: color-mix(in oklab, var(--primary) 8%, transparent); }
 .stats { color: var(--quiet); font-family: var(--font-mono); font-size: 11px; text-align: center; margin: 28px 0 0; }
+.error-banner { width: min(100%, 680px); margin: 22px auto -18px; padding: 12px 14px; border: 1px solid var(--destructive); border-radius: var(--radius); background: color-mix(in oklab, var(--destructive) 12%, transparent); color: var(--destructive-foreground); font-family: var(--font-mono); font-size: 11px; line-height: 1.45; text-align: left; }
+.texture-loaded { width: min(100%, 350px); margin: 14px auto 0; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--quiet); font-family: var(--font-mono); font-size: 11px; }
+.texture-loaded img { width: 34px; height: 34px; border: 1px solid var(--border); border-radius: var(--radius-sm); object-fit: cover; }
 .viewport-wrap { position: relative; height: 100%; min-height: 440px; }
 .view-label { position: absolute; left: 18px; bottom: 18px; font-family: var(--font-mono); font-size: 12px; }
 .viewport-info { position: absolute; right: 18px; bottom: 18px; display: flex; flex-direction: column; text-align: right; font-family: var(--font-mono); font-size: 10px; color: var(--quiet); }
 .viewport-info strong { color: var(--foreground); margin-top: 3px; }
+.unlock-view { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); min-height: 38px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); color: var(--foreground); padding: 0 14px; cursor: pointer; }
 .uv-stage { height: 100%; min-height: 480px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 22px; }
 .uv-frame { width: min(90vw, 680px); aspect-ratio: 1; border: 1px solid var(--border); box-shadow: inset 0 0 0 1px var(--workspace); }
 .uv-canvas { width: 100%; height: 100%; display: block; }
@@ -109,7 +124,7 @@ button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .mode-switch button { min-height: 48px; padding: 0 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--workspace); color: var(--quiet); font-family: var(--font-mono); cursor: pointer; }
 .mode-switch button.is-active { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
 .slot-list { overflow: auto; display: grid; align-content: start; gap: 7px; padding-right: 2px; }
-.slot-row { min-height: 59px; display: grid; grid-template-columns: 38px 1fr 45px; align-items: center; border: 1px solid var(--border); border-radius: var(--radius); background: var(--workspace); padding: 4px 7px 4px 10px; }
+.slot-row { min-height: 59px; display: grid; grid-template-columns: 34px auto minmax(0, 1fr) auto 45px; gap: 5px; align-items: center; border: 1px solid var(--border); border-radius: var(--radius); background: var(--workspace); padding: 4px 7px 4px 10px; }
 .slot-select { width: 27px; height: 27px; border-radius: 50%; border: 1px solid var(--border); background: transparent; }
 .slot-select.is-active { background: var(--primary); box-shadow: inset 0 0 0 6px var(--workspace); }
 .slot-row > div { min-width: 0; display: flex; flex-direction: column; }
@@ -117,6 +132,9 @@ button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .slot-row span { color: var(--quiet); font-family: var(--font-mono); font-size: 10px; margin-top: 2px; }
 .slot-upload { height: 43px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); display: grid; place-items: center; cursor: pointer; }
 .slot-upload svg { width: 19px; }
+.slot-thumbnail { width: 34px; height: 34px; border: 1px solid var(--border); border-radius: var(--radius-sm); object-fit: cover; }
+.slot-clear { width: 36px; height: 40px; border: 0; background: transparent; color: var(--quiet); display: grid; place-items: center; cursor: pointer; }
+.slot-clear svg { width: 17px; }
 .materials-modal footer { color: var(--quiet); font-family: var(--font-mono); font-size: 10px; padding: 16px 4px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 @media (min-width: 760px) {
