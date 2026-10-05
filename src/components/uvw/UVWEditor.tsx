@@ -38,11 +38,10 @@ function makePrimitive(name: PrimitiveName) {
   mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh); applyTexture(group, createCheckerTexture()); return group;
 }
 
-function ToolButton({ label, active, disabled, menu, quick, children, onClick }: { label: string; active?: boolean; disabled?: boolean; menu?: MenuItem[]; quick?: () => void; children: ReactNode; onClick?: () => void }) {
-  const [open, setOpen] = useState(false); const timer = useRef<ReturnType<typeof setTimeout> | null>(null); const held = useRef(false);
-  const down = () => { held.current = false; timer.current = setTimeout(() => { held.current = true; setOpen(true); }, 480); };
-  const up = () => { if (timer.current) clearTimeout(timer.current); if (!held.current && !disabled) onClick?.(); };
-  return <div className="tool-menu-wrap"><button type="button" className={`tool-button ${active ? "is-active" : ""}`} title={label} aria-label={label} disabled={disabled} onPointerDown={down} onPointerUp={up} onPointerCancel={up} onDoubleClick={(event) => { event.preventDefault(); quick?.(); }} onContextMenu={(event) => { event.preventDefault(); if (menu) setOpen(true); }}>{children}{menu && <ChevronDown className="menu-caret" />}</button>{open && menu && <div className="tool-popover" role="menu">{menu.map((item) => <button type="button" role="menuitem" key={item.label} className={item.active ? "is-active" : ""} disabled={item.disabled} onClick={() => { item.action(); setOpen(false); }}>{item.label}</button>)}</div>}</div>;
+function ToolButton({ label, active, disabled, menu, children, onClick }: { label: string; active?: boolean; disabled?: boolean; menu?: MenuItem[]; quick?: () => void; children: ReactNode; onClick?: () => void }) {
+  const [open, setOpen] = useState(false); const wrap = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (!open) return; const close = (event: PointerEvent) => { if (!wrap.current?.contains(event.target as Node)) setOpen(false); }; document.addEventListener("pointerdown", close); return () => document.removeEventListener("pointerdown", close); }, [open]);
+  return <div className="tool-menu-wrap" ref={wrap}><button type="button" className={`tool-button ${active || open ? "is-active" : ""}`} title={label} aria-label={label} aria-expanded={menu ? open : undefined} disabled={disabled} onClick={() => { if (menu) setOpen((v) => !v); else onClick?.(); }}>{children}{menu && <ChevronDown className="menu-caret" />}</button>{open && menu && <div className="tool-popover" role="menu">{menu.map((item) => <button type="button" role="menuitem" key={item.label} className={item.active ? "is-active" : ""} disabled={item.disabled} onClick={() => { item.action(); setOpen(false); }}>{item.label}</button>)}</div>}</div>;
 }
 
 function UVCanvas({ geometry, textureUrl, background, colour, canvasRef }: { geometry: THREE.BufferGeometry | null; textureUrl: string | null; background: UvBackground; colour: string; canvasRef: React.RefObject<HTMLCanvasElement | null> }) {
