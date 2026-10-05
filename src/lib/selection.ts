@@ -6,7 +6,7 @@ export type Selection = { mesh: number; faces: number[]; element: ElementType } 
 
 export function getMeshes(object: THREE.Object3D) {
   const meshes: THREE.Mesh[] = [];
-  object.traverse((item) => { if (item instanceof THREE.Mesh && !item.userData.isSelectionOverlay) meshes.push(item); });
+  object.traverse((item) => { if (item instanceof THREE.Mesh && !item.userData['isSelectionOverlay']) meshes.push(item); });
   return meshes;
 }
 
