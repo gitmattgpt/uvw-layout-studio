@@ -56,12 +56,13 @@ button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .tab-button svg { width: 27px; height: 27px; stroke-width: 1.7; }
 .tab-button.is-active { color: var(--primary); }
 .tab-button.is-active::after { content: ""; position: absolute; bottom: -1px; left: 0; width: 100%; height: 3px; background: var(--primary); }
-.tool-strip { min-height: 66px; display: flex; align-items: center; gap: 7px; padding: 8px 10px; background: var(--workspace); border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
-.tool-button { flex: 0 0 54px; height: 50px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); display: grid; place-items: center; cursor: pointer; }
+.tool-strip { min-height: 66px; display: flex; align-items: center; gap: 7px; padding: 8px 6px; background: var(--workspace); border-bottom: 1px solid var(--border); position: relative; z-index: 20; }
+.tool-button { width: 100%; min-width: 0; padding: 0; height: 50px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); display: grid; place-items: center; cursor: pointer; }
 .tool-button svg { width: 21px; height: 21px; stroke-width: 1.8; }
 .tool-button.is-active { color: var(--primary); border-color: color-mix(in oklab, var(--primary) 52%, var(--border)); }
 .tool-button:disabled { opacity: .38; cursor: not-allowed; }
-.tool-menu-wrap { position: relative; flex: 0 0 auto; }
+.tool-menu-wrap { position: relative; flex: 1 1 0; min-width: 0; }
+.tool-menu-wrap:nth-last-child(-n+4) .tool-popover { left: auto; right: 0; }
 .menu-caret { position: absolute; right: 3px; bottom: 3px; width: 10px !important; height: 10px !important; color: var(--quiet); }
 .tool-popover { position: absolute; z-index: 25; top: calc(100% + 7px); left: 0; width: max-content; min-width: 170px; max-height: min(360px, 55dvh); overflow: auto; padding: 5px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--popover); box-shadow: 0 14px 36px color-mix(in oklab, var(--workspace) 88%, transparent); }
 .tool-popover button { display: block; width: 100%; min-height: 40px; padding: 0 12px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; font-family: var(--font-mono); font-size: 11px; }
@@ -141,7 +142,6 @@ button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
   .editor-shell { grid-template-rows: 72px 92px auto 1fr; }
   .editor-header { padding-inline: 34px; }
   .tab-bar { padding: 0 max(20px, calc((100vw - 840px)/2)); }
-  .tool-strip { justify-content: center; }
   .import-panel { padding-top: clamp(55px, 8vh, 100px); }
   .materials-modal { width: min(760px, calc(100vw - 60px)); max-height: calc(100dvh - 100px); margin: auto; }
 }
@@ -155,7 +155,9 @@ button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
   .primary-action { margin-top: 30px; }
   .secondary-actions button { min-width: 150px; }
   .primitive-grid button { font-size: 14px; }
-  .tool-button { flex-basis: 49px; height: 47px; }
+  .tool-strip { gap: 4px; padding-inline: 4px; }
+  .tool-button { height: 46px; }
+  .tool-button svg { width: 18px; height: 18px; }
   .materials-modal { padding: 18px 14px 14px; }
   .materials-modal h2 { font-size: 22px; }
   .mode-switch button { padding-inline: 12px; font-size: 12px; }
