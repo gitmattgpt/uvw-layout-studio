@@ -39,7 +39,7 @@
 * { box-sizing: border-box; border-color: var(--border); }
 html, body, #root { min-height: 100%; }
 
-/* Disable long-press magnifier, callout (copy/look up/translate), and text selection */
+/* Disable long-press magnifier, callout (copy/look up/translate), text selection, and double-tap zoom */
 html, body {
   -webkit-user-select: none;
   user-select: none;
@@ -48,6 +48,8 @@ html, body {
   touch-action: manipulation;
   overscroll-behavior: none;
 }
+/* Ensure every element inherits no-double-tap-zoom (iOS Safari needs it on the tapped element) */
+*, *::before, *::after { touch-action: manipulation; }
 input, textarea, [contenteditable] {
   -webkit-user-select: text;
   user-select: text;

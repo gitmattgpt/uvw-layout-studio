@@ -127,6 +127,18 @@ function RootComponent() {
     return () => document.removeEventListener("contextmenu", block);
   }, []);
 
+  // iOS Safari fallback: suppress double-tap zoom so double taps can be used by the app
+  useEffect(() => {
+    let lastTap = 0;
+    const onTouchEnd = (event: TouchEvent) => {
+      const now = Date.now();
+      if (now - lastTap < 350) event.preventDefault();
+      lastTap = now;
+    };
+    document.addEventListener("touchend", onTouchEnd, { passive: false });
+    return () => document.removeEventListener("touchend", onTouchEnd);
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
