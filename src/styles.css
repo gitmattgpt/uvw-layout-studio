@@ -38,6 +38,20 @@
 
 * { box-sizing: border-box; border-color: var(--border); }
 html, body, #root { min-height: 100%; }
+
+/* Disable long-press magnifier, callout (copy/look up/translate), and text selection */
+html, body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  overscroll-behavior: none;
+}
+input, textarea, [contenteditable] {
+  -webkit-user-select: text;
+  user-select: text;
+}
 body { margin: 0; background: var(--background); color: var(--foreground); font-family: var(--font-sans); overflow: hidden; }
 button { font: inherit; color: inherit; }
 button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
