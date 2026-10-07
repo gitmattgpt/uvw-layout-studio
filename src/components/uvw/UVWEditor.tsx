@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from "react";
 import {
   Box, BoxSelect, ChevronDown, Download, Eye, Focus, Grid2X2, Image as ImageIcon, Layers3,
   Lock, Map, MousePointer2, Move, Redo2, RotateCcw, Scissors, Shapes, Trash2, Undo2, Unlock, Upload, X, ZoomIn,
@@ -20,6 +20,7 @@ type UvBackground = "checker" | "grid" | "texture" | "colour";
 type TransformMode = "Select" | "Move" | "Rotate" | "Scale";
 type MaterialAsset = { file: File; url: string; texture: THREE.Texture };
 type MenuItem = { label: string; disabled?: boolean; active?: boolean; action: () => void };
+type UVView = { zoom: number; panX: number; panY: number };
 const primitives: PrimitiveName[] = ["Box", "Sphere", "Cylinder", "Torus", "Knot", "Plane"];
 const gltfSlots: ReadonlyArray<readonly [string, string]> = [
   ["Base Color", "RGB + Alpha"], ["Metallic–Roughness", "B = Metallic, G = Roughness"], ["Normal Map", "Tangent space"],
@@ -45,7 +46,62 @@ function ToolButton({ label, active, disabled, menu, children, onClick }: { labe
   return <div className="tool-menu-wrap" ref={wrap}><button type="button" className={`tool-button ${active || open ? "is-active" : ""}`} title={label} aria-label={label} aria-expanded={menu ? open : undefined} disabled={disabled} onClick={() => { if (menu) setOpen((v) => !v); else onClick?.(); }}>{children}{menu && <ChevronDown className="menu-caret" />}</button>{open && menu && <div className="tool-popover" role="menu">{menu.map((item) => <button type="button" role="menuitem" key={item.label} className={item.active ? "is-active" : ""} disabled={item.disabled} onClick={() => { item.action(); setOpen(false); }}>{item.label}</button>)}</div>}</div>;
 }
 
-function UVCanvas({ geometry, textureUrl, background, colour, canvasRef, selection, uvNonce }: { selection: Selection; uvNonce: number; geometry: THREE.BufferGeometry | null; textureUrl: string | null; background: UvBackground; colour: string; canvasRef: React.RefObject<HTMLCanvasElement | null> }) {
+const DEFAULT_UV_VIEW: UVView = { zoom: 1, panX: 0, panY: 0 };
+
+function useUVTouchGestures(frameRef: React.RefObject<HTMLDivElement | null>, uvView: UVView, setUvView: React.Dispatch<React.SetStateAction<UVView>>) {
+  const gestureRef = useRef<{ mode: "none" | "pan" | "pinch"; startDist: number; startZoom: number; startX: number; startY: number; startPanX: number; startPanY: number }>({ mode: "none", startDist: 0, startZoom: 1, startX: 0, startY: 0, startPanX: 0, startPanY: 0 });
+
+  const onTouchStart = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
+    if (event.touches.length === 2) {
+      const dx = event.touches[0].clientX - event.touches[1].clientX;
+      const dy = event.touches[0].clientY - event.touches[1].clientY;
+      gestureRef.current = {
+        mode: "pinch",
+        startDist: Math.hypot(dx, dy),
+        startZoom: uvView.zoom,
+        startX: (event.touches[0].clientX + event.touches[1].clientX) / 2,
+        startY: (event.touches[0].clientY + event.touches[1].clientY) / 2,
+        startPanX: uvView.panX,
+        startPanY: uvView.panY,
+      };
+      event.preventDefault();
+    }
+  }, [uvView]);
+
+  const onTouchMove = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
+    const g = gestureRef.current;
+    if (g.mode === "none" || event.touches.length !== 2) return;
+    event.preventDefault();
+
+    const dx = event.touches[0].clientX - event.touches[1].clientX;
+    const dy = event.touches[0].clientY - event.touches[1].clientY;
+    const dist = Math.hypot(dx, dy);
+    const midX = (event.touches[0].clientX + event.touches[1].clientX) / 2;
+    const midY = (event.touches[0].clientY + event.touches[1].clientY) / 2;
+
+    const scale = g.startDist > 0 ? dist / g.startDist : 1;
+    const newZoom = Math.max(0.3, Math.min(8, g.startZoom * scale));
+
+    const frameMidX = g.startX;
+    const frameMidY = g.startY;
+    const deltaMidX = midX - frameMidX;
+    const deltaMidY = midY - frameMidY;
+
+    setUvView({
+      zoom: newZoom,
+      panX: g.startPanX + deltaMidX,
+      panY: g.startPanY + deltaMidY,
+    });
+  }, [setUvView]);
+
+  const onTouchEnd = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
+    if (event.touches.length < 2) gestureRef.current.mode = "none";
+  }, []);
+
+  return { onTouchStart, onTouchMove, onTouchEnd };
+}
+
+function UVCanvas({ geometry, textureUrl, background, colour, canvasRef, selection, uvNonce, uvView }: { selection: Selection; uvNonce: number; geometry: THREE.BufferGeometry | null; textureUrl: string | null; background: UvBackground; colour: string; canvasRef: React.RefObject<HTMLCanvasElement | null>; uvView: UVView }) {
   useEffect(() => {
     const canvas = canvasRef.current; const ctx = canvas?.getContext("2d"); if (!canvas || !ctx) return;
     const draw = (image?: HTMLImageElement) => {
@@ -64,7 +120,7 @@ function UVCanvas({ geometry, textureUrl, background, colour, canvasRef, selecti
     };
     if (background !== "texture" || !textureUrl) { draw(); return; } const image = new Image(); image.onload = () => draw(image); image.src = textureUrl;
   }, [geometry, textureUrl, background, colour, canvasRef, selection, uvNonce]);
-  return <canvas ref={canvasRef} width={1024} height={1024} className="uv-canvas" aria-label="Current UV layout" />;
+  return <canvas ref={canvasRef} width={1024} height={1024} className="uv-canvas" aria-label="Current UV layout" style={{ transform: `translate(${uvView.panX}px, ${uvView.panY}px) scale(${uvView.zoom})`, transformOrigin: "center center" }} />;
 }
 
 export function UVWEditor() {
@@ -79,9 +135,12 @@ export function UVWEditor() {
   const [uvBackground, setUvBackground] = useState<UvBackground>("checker"); const [uvColour, setUvColour] = useState("#282c33"); const [transformMode, setTransformMode] = useState<TransformMode>("Select");
   const [numericValue, setNumericValue] = useState("90"); const [history, setHistory] = useState<THREE.Group[]>([]); const [future, setFuture] = useState<THREE.Group[]>([]);
   const [slots, setSlots] = useState<Record<string, MaterialAsset>>({}); const [activeSlot, setActiveSlot] = useState("Base Color"); const [pendingSlot, setPendingSlot] = useState<string | null>(null);
+  const [uvView, setUvView] = useState<UVView>(DEFAULT_UV_VIEW);
   const modelInput = useRef<HTMLInputElement>(null); const textureInput = useRef<HTMLInputElement>(null); const slotInput = useRef<HTMLInputElement>(null); const colourInput = useRef<HTMLInputElement>(null); const uvCanvasRef = useRef<HTMLCanvasElement>(null);
+  const uvFrameRef = useRef<HTMLDivElement>(null);
   const stats = useMemo(() => getStats(object), [object]); const selectedMesh = selection ? getMeshes(object)[selection.mesh] ?? null : null; const geometry = useMemo(() => selectedMesh?.geometry ?? getFirstGeometry(object), [object, selectedMesh]);
   useEffect(() => () => { if (textureUrl) URL.revokeObjectURL(textureUrl); Object.values(slots).forEach((slot) => URL.revokeObjectURL(slot.url)); }, []);
+  useEffect(() => { if (tab !== "uvw") setUvView(DEFAULT_UV_VIEW); }, [tab]);
   const checkpoint = () => { setHistory((items) => [...items.slice(-19), object.clone(true)]); setFuture([]); };
   const commit = (message: string) => { setObject(object.clone(true)); setNotice(message); };
   const undo = () => { const previous = history.at(-1); if (!previous) return; setFuture((items) => [object.clone(true), ...items]); setHistory((items) => items.slice(0, -1)); setObject(previous); setNotice("Undid last change"); };
@@ -102,6 +161,8 @@ export function UVWEditor() {
   const mapMenu: MenuItem[] = (["Planar", "Box", "Cylindrical", "Auto Unwrap", "Original"] as MappingMode[]).map((item) => ({ label: item, active: mapping === item, disabled: item === "Original", action: () => applyMapping(item) }));
   const viewMenu: MenuItem[] = [{ label: "Perspective", active: view === "persp", action: () => setView("persp") }, { label: "Orthographic", active: view === "ortho", action: () => setView("ortho") }, ...(["front", "back", "left", "right", "top", "bottom"] as ViewName[]).map((item) => ({ label: `${item.charAt(0).toUpperCase()}${item.slice(1)}`, active: view === item, action: () => setView(item) }))];
   const tabs = [["import", Upload, "Import"], ["view", Box, "3D View"], ["uvw", Grid2X2, "UVW"], ["export", Download, "Export"]] as const;
+  const touchGestures = useUVTouchGestures(uvFrameRef, uvView, setUvView);
+  const resetUvView = () => setUvView(DEFAULT_UV_VIEW);
   return <main className="editor-shell">
     <header className="editor-header"><div className="brand-mark"><span>U</span><span>V</span><span>W</span></div><div className="file-status"><strong>{modelName}</strong><span>{notice}</span></div><button className="close-button" type="button" aria-label="Clear workspace" title="Clear workspace" onClick={() => selectPrimitive("Box")}><X /></button></header>
     <nav className="tab-bar" aria-label="Editor sections">{tabs.map(([id, Icon, label]) => <button type="button" key={id} className={`tab-button ${tab === id ? "is-active" : ""}`} onClick={() => setTab(id)}><Icon /><span>{label}</span></button>)}</nav>
@@ -115,7 +176,7 @@ export function UVWEditor() {
       <ToolButton label="Mapping" active menu={mapMenu} onClick={() => applyMapping(mapping)}><Map /></ToolButton>
       {tab === "view" ? <ToolButton label="Cut seams" onClick={() => { navigator.vibrate?.(25); setNotice("Seams marked for the next unwrap"); }}><Scissors /></ToolButton> : <ToolButton label="Repack islands" onClick={() => applyMapping("Auto Unwrap")} menu={[{ label: "Margin 8 px", action: () => setNotice("Island margin set to 8 px") }, { label: "Repack Islands", action: () => applyMapping("Auto Unwrap") }]}><Grid2X2 /></ToolButton>}
       {tab === "uvw" && <ToolButton label="Texture background" menu={[{ label: "Checkerboard", active: uvBackground === "checker", action: () => setUvBackground("checker") }, { label: "Default Grid", active: uvBackground === "grid", action: () => setUvBackground("grid") }, { label: "Texture", disabled: !textureUrl, active: uvBackground === "texture", action: () => setUvBackground("texture") }, { label: "Colour", active: uvBackground === "colour", action: () => colourInput.current?.click() }, { label: "Materials", action: () => setMaterialsOpen(true) }]}><ImageIcon /></ToolButton>}
-      <ToolButton label="Zoom" onClick={() => setFocusNonce((value) => value + 1)} menu={[{ label: "Zoom Extents", action: () => setFocusNonce((value) => value + 1) }, { label: "Zoom Selected", disabled: !selectedMesh, action: () => setFocusNonce((value) => value + 1) }]}><ZoomIn /></ToolButton>
+      <ToolButton label="Zoom" onClick={() => { if (tab === "uvw") resetUvView(); else setFocusNonce((value) => value + 1); }} menu={tab === "uvw" ? [{ label: "Reset View", action: resetUvView }, { label: "Zoom Extents", action: resetUvView }] : [{ label: "Zoom Extents", action: () => setFocusNonce((value) => value + 1) }, { label: "Zoom Selected", disabled: !selectedMesh, action: () => setFocusNonce((value) => value + 1) }]}><ZoomIn /></ToolButton>
       <ToolButton label="Undo" disabled={!history.length} onClick={undo}><Undo2 /></ToolButton>
       <ToolButton label="Redo" disabled={!future.length} onClick={redo}><Redo2 /></ToolButton>
     </div>}
@@ -123,8 +184,8 @@ export function UVWEditor() {
     <section className={`workspace workspace-${tab}`}>
       {tab === "import" && <div className="import-panel"><div className="intro"><span className="eyebrow">01 / SOURCE</span><h1>UVW Mapping Tool</h1><p>Import a model or start from a primitive</p></div>{error && <div className="error-banner" role="alert">{error}</div>}<button type="button" className="primary-action" disabled={importing} onClick={() => modelInput.current?.click()}><Upload />{importing ? "Importing…" : "Import Model"}<small>OBJ · GLB · GLTF · STL</small></button><div className="secondary-actions"><button type="button" onClick={() => textureInput.current?.click()}><ImageIcon />Import Texture</button><button type="button" onClick={() => setMaterialsOpen(true)}><Layers3 />Materials</button></div>{textureUrl && <div className="texture-loaded"><img src={textureUrl} alt="Imported texture thumbnail" /><span>Texture loaded</span></div>}<div className="primitive-panel"><div className="section-label"><Shapes />Primitives</div><div className="primitive-grid">{primitives.map((name) => <button type="button" key={name} title={`Replace model with ${name}`} className={primitive === name ? "is-selected" : ""} onClick={() => selectPrimitive(name)}>{name}</button>)}</div></div><p className="stats">Current: {modelName} · {stats.faces.toLocaleString()} faces · {stats.vertices.toLocaleString()} verts</p></div>}
       {tab === "view" && <div className="viewport-wrap"><Viewport3D object={object} locked={locked} view={view} focusNonce={focusNonce} selection={selection} onPick={(mesh, face) => { setSelection((cur) => updateSelection(cur, object, mesh, face, elementType, selectionMode)); setNotice(`${elementType} · ${selectionMode}`); }} /><span className="view-label">{view.toUpperCase()}</span>{locked && view !== "persp" && <button type="button" className="unlock-view" onClick={() => { setLocked(false); setView("persp"); }}>Unlock view</button>}<div className="viewport-info"><span>{modelName}</span><strong>{stats.faces.toLocaleString()} tris</strong></div></div>}
-      {tab === "uvw" && <div className="uv-stage"><div className="uv-frame"><UVCanvas geometry={geometry} textureUrl={textureUrl} background={uvBackground} colour={uvColour} canvasRef={uvCanvasRef} selection={selection} uvNonce={history.length + future.length} /></div><div className="uv-footer"><span>UV SPACE 0—1 · {transformMode}</span><button type="button" onClick={() => applyMapping("Planar")}><Map />Planar unwrap</button></div></div>}
-      {tab === "export" && <div className="export-panel"><span className="eyebrow">04 / OUTPUT</span><h1>Export</h1><p>{textureFile ? "Your imported texture and UVs are included in every format." : "No texture imported — exports will use the checker grid."}</p><div className="export-list"><button type="button" onClick={() => confirmTexture(() => void exportGlb(object))}><Box /><span><strong>GLB</strong><small>Mesh + UVs + texture</small></span><Download /></button><button type="button" onClick={() => confirmTexture(() => void downloadObjZip())}><Box /><span><strong>OBJ + MTL + PNG</strong><small>Packaged as .zip</small></span><Download /></button><button type="button" onClick={downloadUv}><ImageIcon /><span><strong>UV Layout PNG</strong><small>1024 × 1024 wireframe</small></span><Download /></button></div><p className="stats">{modelName} · {stats.faces.toLocaleString()} faces · {stats.vertices.toLocaleString()} verts</p><div className="hidden-canvas"><UVCanvas geometry={geometry} textureUrl={textureUrl} background={uvBackground} colour={uvColour} canvasRef={uvCanvasRef} selection={selection} uvNonce={history.length + future.length} /></div></div>}
+      {tab === "uvw" && <div className="uv-stage"><div className="uv-frame" ref={uvFrameRef} onTouchStart={touchGestures.onTouchStart} onTouchMove={touchGestures.onTouchMove} onTouchEnd={touchGestures.onTouchEnd}><UVCanvas geometry={geometry} textureUrl={textureUrl} background={uvBackground} colour={uvColour} canvasRef={uvCanvasRef} selection={selection} uvNonce={history.length + future.length} uvView={uvView} /></div><div className="uv-footer"><span>UV SPACE 0—1 · {transformMode}{uvView.zoom !== 1 || uvView.panX !== 0 || uvView.panY !== 0 ? ` · ${uvView.zoom.toFixed(1)}x` : ""}</span><button type="button" onClick={() => applyMapping("Planar")}><Map />Planar unwrap</button></div></div>}
+      {tab === "export" && <div className="export-panel"><span className="eyebrow">04 / OUTPUT</span><h1>Export</h1><p>{textureFile ? "Your imported texture and UVs are included in every format." : "No texture imported — exports will use the checker grid."}</p><div className="export-list"><button type="button" onClick={() => confirmTexture(() => void exportGlb(object))}><Box /><span><strong>GLB</strong><small>Mesh + UVs + texture</small></span><Download /></button><button type="button" onClick={() => confirmTexture(() => void downloadObjZip())}><Box /><span><strong>OBJ + MTL + PNG</strong><small>Packaged as .zip</small></span><Download /></button><button type="button" onClick={downloadUv}><ImageIcon /><span><strong>UV Layout PNG</strong><small>1024 × 1024 wireframe</small></span><Download /></button></div><p className="stats">{modelName} · {stats.faces.toLocaleString()} faces · {stats.vertices.toLocaleString()} verts</p><div className="hidden-canvas"><UVCanvas geometry={geometry} textureUrl={textureUrl} background={uvBackground} colour={uvColour} canvasRef={uvCanvasRef} selection={selection} uvNonce={history.length + future.length} uvView={DEFAULT_UV_VIEW} /></div></div>}
     </section>
     <input ref={modelInput} className="sr-only" type="file" accept=".obj,.glb,.gltf,.stl,model/gltf-binary" onChange={(event) => void onModel(event)} /><input ref={textureInput} className="sr-only" type="file" accept="image/png,image/jpeg" onChange={onTexture} /><input ref={slotInput} className="sr-only" type="file" accept="image/png,image/jpeg" onChange={onSlotTexture} /><input ref={colourInput} className="sr-only" type="color" value={uvColour} onChange={(event) => { setUvColour(event.target.value); setUvBackground("colour"); }} />
     {materialsOpen && <div className="modal-scrim" onMouseDown={(event) => { if (event.currentTarget === event.target) setMaterialsOpen(false); }}><section className="materials-modal" role="dialog" aria-modal="true" aria-labelledby="materials-title"><header><div><h2 id="materials-title"><Layers3 />Materials</h2><p>Assign textures to material slots and choose which slot drives the active UVW texture.</p></div><button type="button" onClick={() => setMaterialsOpen(false)} aria-label="Close materials"><X /></button></header><div className="mode-switch"><button type="button" className={materialMode === "gltf" ? "is-active" : ""} onClick={() => setMaterialMode("gltf")}>GLB / glTF (PBR)</button><button type="button" className={materialMode === "obj" ? "is-active" : ""} onClick={() => setMaterialMode("obj")}>OBJ / MTL</button></div><div className="slot-list">{(materialMode === "gltf" ? gltfSlots : objSlots).map(([label, detail]) => { const asset = slots[label]; return <div className="slot-row" key={label}><button className={`slot-select ${activeSlot === label && asset ? "is-active" : ""}`} type="button" disabled={!asset} onClick={() => { if (!asset) return; setActiveSlot(label); setTexture(asset.texture); setTextureUrl(asset.url); setTextureFile(asset.file); applyTexture(object, asset.texture, wireframe); commit(`${label} set as active UVW texture`); }} aria-label={`Use ${label} for UV preview`} />{asset && <img className="slot-thumbnail" src={asset.url} alt="" />}<div><strong>{label}</strong><span>{detail}</span></div>{asset && <button className="slot-clear" type="button" aria-label={`Clear ${label}`} onClick={() => { URL.revokeObjectURL(asset.url); setSlots((current) => { const next = { ...current }; delete next[label]; return next; }); }}><Trash2 /></button>}<button className="slot-upload" type="button" onClick={() => { setPendingSlot(label); slotInput.current?.click(); }} aria-label={`Assign texture to ${label}`}><Upload /></button></div>; })}</div><footer>Active UVW texture: {activeSlot}{slots[activeSlot] ? ` · ${slots[activeSlot].file.name}` : " · none"}</footer></section></div>}
