@@ -48,19 +48,37 @@ function ToolButton({ label, active, disabled, menu, children, onClick }: { labe
 
 const DEFAULT_UV_VIEW: UVView = { zoom: 1, panX: 0, panY: 0 };
 
+function cloneObjectSnapshot<T extends THREE.Object3D>(source: T): T {
+  const snapshot = source.clone(true) as T;
+  const sourceMeshes = getMeshes(source);
+  const snapshotMeshes = getMeshes(snapshot);
+  sourceMeshes.forEach((mesh, index) => {
+    const copy = snapshotMeshes[index];
+    if (!copy) return;
+    copy.geometry = mesh.geometry.clone();
+    copy.material = Array.isArray(mesh.material)
+      ? mesh.material.map((material) => material.clone())
+      : mesh.material.clone();
+  });
+  return snapshot;
+}
+
 function useUVTouchGestures(frameRef: React.RefObject<HTMLDivElement | null>, uvView: UVView, setUvView: React.Dispatch<React.SetStateAction<UVView>>) {
   const gestureRef = useRef<{ mode: "none" | "pan" | "pinch"; startDist: number; startZoom: number; startX: number; startY: number; startPanX: number; startPanY: number }>({ mode: "none", startDist: 0, startZoom: 1, startX: 0, startY: 0, startPanX: 0, startPanY: 0 });
 
   const onTouchStart = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
     if (event.touches.length === 2) {
-      const dx = event.touches[0].clientX - event.touches[1].clientX;
-      const dy = event.touches[0].clientY - event.touches[1].clientY;
+      const first = event.touches.item(0);
+      const second = event.touches.item(1);
+      if (!first || !second) return;
+      const dx = first.clientX - second.clientX;
+      const dy = first.clientY - second.clientY;
       gestureRef.current = {
         mode: "pinch",
         startDist: Math.hypot(dx, dy),
         startZoom: uvView.zoom,
-        startX: (event.touches[0].clientX + event.touches[1].clientX) / 2,
-        startY: (event.touches[0].clientY + event.touches[1].clientY) / 2,
+        startX: (first.clientX + second.clientX) / 2,
+        startY: (first.clientY + second.clientY) / 2,
         startPanX: uvView.panX,
         startPanY: uvView.panY,
       };
@@ -73,11 +91,14 @@ function useUVTouchGestures(frameRef: React.RefObject<HTMLDivElement | null>, uv
     if (g.mode === "none" || event.touches.length !== 2) return;
     event.preventDefault();
 
-    const dx = event.touches[0].clientX - event.touches[1].clientX;
-    const dy = event.touches[0].clientY - event.touches[1].clientY;
+    const first = event.touches.item(0);
+    const second = event.touches.item(1);
+    if (!first || !second) return;
+    const dx = first.clientX - second.clientX;
+    const dy = first.clientY - second.clientY;
     const dist = Math.hypot(dx, dy);
-    const midX = (event.touches[0].clientX + event.touches[1].clientX) / 2;
-    const midY = (event.touches[0].clientY + event.touches[1].clientY) / 2;
+    const midX = (first.clientX + second.clientX) / 2;
+    const midY = (first.clientY + second.clientY) / 2;
 
     const scale = g.startDist > 0 ? dist / g.startDist : 1;
     const newZoom = Math.max(0.3, Math.min(8, g.startZoom * scale));
@@ -142,10 +163,10 @@ export function UVWEditor() {
   const stats = useMemo(() => getStats(object), [object]); const selectedMesh = selection ? getMeshes(object)[selection.mesh] ?? null : null; const geometry = useMemo(() => selectedMesh?.geometry ?? getFirstGeometry(object), [object, selectedMesh]);
   useEffect(() => () => { if (textureUrl) URL.revokeObjectURL(textureUrl); Object.values(slots).forEach((slot) => URL.revokeObjectURL(slot.url)); }, []);
   useEffect(() => { if (tab !== "uvw") setUvView(DEFAULT_UV_VIEW); }, [tab]);
-  const checkpoint = () => { setHistory((items) => [...items.slice(-19), object.clone(true)]); setFuture([]); };
+  const checkpoint = () => { setHistory((items) => [...items.slice(-19), cloneObjectSnapshot(object)]); setFuture([]); };
   const commit = (message: string) => { setObject(object.clone(true)); setNotice(message); };
-  const undo = () => { const previous = history.at(-1); if (!previous) return; setFuture((items) => [object.clone(true), ...items]); setHistory((items) => items.slice(0, -1)); setObject(previous); setNotice("Undid last change"); };
-  const redo = () => { const next = future[0]; if (!next) return; setHistory((items) => [...items, object.clone(true)]); setFuture((items) => items.slice(1)); setObject(next); setNotice("Redid change"); };
+  const undo = () => { const previous = history.at(-1); if (!previous) return; setFuture((items) => [cloneObjectSnapshot(object), ...items]); setHistory((items) => items.slice(0, -1)); setObject(previous); setNotice("Undid last change"); };
+  const redo = () => { const next = future[0]; if (!next) return; setHistory((items) => [...items, cloneObjectSnapshot(object)]); setFuture((items) => items.slice(1)); setObject(next); setNotice("Redid change"); };
   const selectPrimitive = (name: PrimitiveName) => { checkpoint(); const next = makePrimitive(name); if (texture) applyTexture(next, texture, wireframe); setPrimitive(name); setModelName(name); setSelection(null); setObject(next); setError(null); setNotice(`${name} created`); setTab("view"); };
   const onModel = async (event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (!file) return; checkpoint(); setImporting(true); setError(null); setNotice(`Importing ${file.name}…`); try { const next = normalizeModel(await loadModel(file)); applyTexture(next, texture, wireframe); setSelection(null); setObject(next); setModelName(file.name.replace(/\.[^.]+$/, "")); setNotice(`${file.name} imported`); setTab("view"); if (!texture) setTexturePrompt(true); } catch (caught) { const message = caught instanceof Error ? caught.message : "Could not import model"; setError(`${message} Try OBJ, GLB, glTF, or STL instead.`); setNotice("Import failed"); } finally { setImporting(false); event.target.value = ""; } };
   const loadTextureFile = (file: File, slot?: string) => { const url = URL.createObjectURL(file); new THREE.TextureLoader().load(url, (next) => { next.colorSpace = THREE.SRGBColorSpace; next.flipY = false; if (slot) { setSlots((current) => ({ ...current, [slot]: { file, url, texture: next } })); setActiveSlot(slot); } setTexture(next); setTextureUrl(url); setTextureFile(file); applyTexture(object, next, wireframe); commit(`${file.name} applied`); }, undefined, () => { URL.revokeObjectURL(url); setError("Could not read that texture. Choose a PNG or JPG image."); }); };

@@ -148,11 +148,23 @@ export function transformUvs(root: THREE.Object3D, transform: { moveX?: number; 
   });
 }
 
+let fallbackCheckerTexture: THREE.CanvasTexture | null = null;
+
 export function applyTexture(root: THREE.Object3D, texture: THREE.Texture | null, wireframe = false) {
+  const fallback = texture ? null : (fallbackCheckerTexture ??= createCheckerTexture());
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
-    const material = new THREE.MeshStandardMaterial({ map: texture ?? createCheckerTexture(), roughness: 0.72, metalness: 0.05, wireframe });
-    object.material = material;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) {
+      const editable = material as THREE.Material & { map?: THREE.Texture | null; wireframe?: boolean };
+      let changed = false;
+      if ("map" in editable) {
+        if (texture && editable.map !== texture) { editable.map = texture; changed = true; }
+        else if (!texture && !editable.map && fallback) { editable.map = fallback; changed = true; }
+      }
+      if ("wireframe" in editable && editable.wireframe !== wireframe) { editable.wireframe = wireframe; changed = true; }
+      if (changed) editable.needsUpdate = true;
+    }
   });
 }
 
