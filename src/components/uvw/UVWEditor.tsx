@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from "react";
 import {
-  Box, BoxSelect, ChevronDown, Download, Eye, Focus, Grid2X2, Image as ImageIcon, Layers3,
+  Box, BoxSelect, ChevronDown, Copy, Download, Eye, Focus, Grid2X2, Image as ImageIcon, Layers3,
   Lock, Map, MousePointer2, Move, Redo2, RotateCcw, Scissors, Shapes, Trash2, Undo2, Unlock, Upload, X, ZoomIn,
 } from "lucide-react";
 import * as THREE from "three";
@@ -8,9 +8,9 @@ import JSZip from "jszip";
 import { Viewport3D, type CameraState, type ViewName } from "./Viewport3D";
 import { faceVertex, getMeshes, updateSelection, type ElementType, type Selection } from "@/lib/selection";
 import {
-  applyTexture, applyTextureToSlot, boxUnwrap, createCheckerTexture, cylindricalUnwrap, downloadBlob, exportGlb,
-  getFirstGeometry, getStats, hasBaseColorTexture, loadModel, normalizeModel, planarUnwrap, primitiveGeometry,
-  transformUvs, type PrimitiveName,
+  applyTexture, applyTextureToSlot, boxUnwrap, createCheckerTexture, createModelExportText, cylindricalUnwrap, downloadBlob,
+  exportGlb, exportGltf, exportObj, exportPly, exportStl, getFirstGeometry, getStats, hasBaseColorTexture, loadModel,
+  normalizeModel, planarUnwrap, primitiveGeometry, transformUvs, type PrimitiveName, type TextModelFormat,
 } from "../../lib/uvw";
 
 type Tab = "import" | "view" | "uvw" | "export";
@@ -203,9 +203,63 @@ export function UVWEditor() {
   const hideSelection = () => { if (!selectedMesh) { setNotice("Select a mesh first"); return; } selectedMesh.visible = false; setHidden(true); commit("Selection hidden"); };
   const showHidden = () => { object.traverse((item) => { item.visible = true; }); setHidden(false); commit("Hidden geometry restored"); };
   const performTransform = () => { const amount = Number(numericValue); if (!Number.isFinite(amount)) return; checkpoint(); if (transformMode === "Rotate") transformUvs(object, { rotate: amount }); if (transformMode === "Move") transformUvs(object, { moveX: amount }); if (transformMode === "Scale") transformUvs(object, { scaleX: amount, scaleY: amount }); commit(`${transformMode} applied`); };
-  const downloadUv = () => uvCanvasRef.current?.toBlob((blob) => { if (blob) downloadBlob(blob, "uvforge-layout.png"); }, "image/png");
-  const confirmTexture = (action: () => void) => { if (textureFile || window.confirm("No texture is loaded. Continue using the checker texture?")) action(); else textureInput.current?.click(); };
-  const downloadObjZip = async () => { const zip = new JSZip(); const source = new (await import("three/examples/jsm/exporters/OBJExporter.js")).OBJExporter().parse(object); const textureName = textureFile?.name ?? "texture.png"; zip.file("uvforge-model.obj", source); zip.file("uvforge-model.mtl", `newmtl uvforge_material\nKd 1.0 1.0 1.0\nmap_Kd ${textureName}\n`); if (textureFile) zip.file(textureName, textureFile); downloadBlob(await zip.generateAsync({ type: "blob" }), "uvforge-model.zip"); };
+  const exportFileStem = modelName.replace(/\.[^.]+$/, "").trim().replace(/[^a-zA-Z0-9._-]+/g, "-") || "uvw-model";
+  const downloadUv = () => uvCanvasRef.current?.toBlob((blob) => { if (blob) downloadBlob(blob, `${exportFileStem}-uv.png`); }, "image/png");
+  const confirmTexture = (action: () => void) => { if (textureFile || hasBaseColorTexture(object) || window.confirm("No texture is loaded. Continue without an imported texture?")) action(); else textureInput.current?.click(); };
+  const downloadObjZip = async () => {
+    const zip = new JSZip();
+    const objName = `${exportFileStem}.obj`;
+    const mtlName = `${exportFileStem}.mtl`;
+    let source = new (await import("three/examples/jsm/exporters/OBJExporter.js")).OBJExporter().parse(object);
+    source = `mtllib ${mtlName}\n${source.replace(/^usemtl .*$/gm, "usemtl uvforge_material")}`;
+    if (!/^usemtl uvforge_material$/m.test(source)) source = source.replace(/^(f\s)/m, "usemtl uvforge_material\n$1");
+    const textureExtension = textureFile?.name.match(/\.[a-zA-Z0-9]+$/)?.[0] ?? ".png";
+    const textureName = `uvforge-texture${textureExtension}`;
+    const mtl = [`newmtl uvforge_material`, `Kd 1.0 1.0 1.0`, ...(textureFile ? [`map_Kd ${textureName}`] : [])].join("\n") + "\n";
+    zip.file(objName, source);
+    zip.file(mtlName, mtl);
+    if (textureFile) zip.file(textureName, textureFile);
+    downloadBlob(await zip.generateAsync({ type: "blob" }), `${exportFileStem}-obj.zip`);
+  };
+  const copyTextExport = async (format: TextModelFormat) => {
+    setNotice(`Preparing ${format.toUpperCase()} text…`);
+    try {
+      const text = await createModelExportText(object, format);
+      const sizeBytes = new Blob([text]).size;
+      if (sizeBytes > 1024 * 1024 && !window.confirm(`This text export is ${(sizeBytes / (1024 * 1024)).toFixed(1)} MB. It may be too large for Aippy’s paste field or your clipboard. Continue?`)) return;
+      downloadBlob(new Blob([text], { type: "text/plain;charset=utf-8" }), `${exportFileStem}-${format}-text.txt`);
+      let copied = false;
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+          copied = true;
+        }
+      } catch {
+        // Fall through to the legacy copy method for browsers with clipboard restrictions.
+      }
+      if (!copied) {
+        const field = document.createElement("textarea");
+        field.value = text;
+        field.setAttribute("readonly", "");
+        field.style.position = "fixed";
+        field.style.opacity = "0";
+        document.body.appendChild(field);
+        try {
+          field.focus();
+          field.select();
+          copied = document.execCommand("copy");
+        } catch {
+          copied = false;
+        } finally {
+          field.remove();
+        }
+      }
+      setNotice(copied ? `${format.toUpperCase()} text copied and saved as TXT` : `TXT saved; clipboard copy failed—open the file and copy its text`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not create the text export.");
+      setNotice("Text export failed");
+    }
+  };
   const mapMenu: MenuItem[] = (["Planar", "Box", "Cylindrical", "Auto Unwrap", "Original"] as MappingMode[]).map((item) => ({ label: item, active: mapping === item, disabled: item === "Original", action: () => applyMapping(item) }));
   const viewMenu: MenuItem[] = [{ label: "Perspective", active: view === "persp", action: () => setView("persp") }, { label: "Orthographic", active: view === "ortho", action: () => setView("ortho") }, ...(["front", "back", "left", "right", "top", "bottom"] as ViewName[]).map((item) => ({ label: `${item.charAt(0).toUpperCase()}${item.slice(1)}`, active: view === item, action: () => setView(item) }))];
   const tabs = [["import", Upload, "Import"], ["view", Box, "3D View"], ["uvw", Grid2X2, "UVW"], ["export", Download, "Export"]] as const;
@@ -233,7 +287,25 @@ export function UVWEditor() {
       {tab === "import" && <div className="import-panel"><div className="intro"><span className="eyebrow">01 / SOURCE</span><h1>UVW Mapping Tool</h1><p>Import a model or start from a primitive</p></div>{error && <div className="error-banner" role="alert">{error}</div>}<button type="button" className="primary-action" disabled={importing} onClick={() => modelInput.current?.click()}><Upload />{importing ? "Importing…" : "Import Model"}<small>OBJ · GLB · glTF · STL · 3MF · FBX · PLY · DAE · STEP · IGES · ZIP</small></button><p className="import-format-hint">For glTF, OBJ/MTL, FBX, or COLLADA with external resources, select companion files or a ZIP. STEP/IGES are converted to triangle meshes for UV editing.</p><div className="secondary-actions"><button type="button" onClick={() => textureInput.current?.click()}><ImageIcon />Import Texture</button><button type="button" onClick={() => setMaterialsOpen(true)}><Layers3 />Materials</button></div>{textureUrl && <div className="texture-loaded"><img src={textureUrl} alt="Imported texture thumbnail" /><span>Texture loaded</span></div>}<div className="primitive-panel"><div className="section-label"><Shapes />Primitives</div><div className="primitive-grid">{primitives.map((name) => <button type="button" key={name} title={`Replace model with ${name}`} className={primitive === name ? "is-selected" : ""} onClick={() => selectPrimitive(name)}>{name}</button>)}</div></div><p className="stats">Current: {modelName} · {stats.faces.toLocaleString()} faces · {stats.vertices.toLocaleString()} verts</p></div>}
       <div className="viewport-wrap" style={{ display: tab === "view" ? undefined : "none" }}><Viewport3D object={object} locked={locked} view={view} focusNonce={focusNonce} selection={selection} savedCamera={savedCameraRef.current} onCameraSave={(state) => { savedCameraRef.current = state; }} onPick={(mesh, face) => { setSelection((cur) => updateSelection(cur, object, mesh, face, elementType, selectionMode)); setNotice(`${elementType} · ${selectionMode}`); }} /><span className="view-label">{view.toUpperCase()}</span>{locked && view !== "persp" && <button type="button" className="unlock-view" onClick={() => { setLocked(false); setView("persp"); }}>Unlock view</button>}<div className="viewport-info"><span>{modelName}</span><strong>{stats.faces.toLocaleString()} tris</strong></div></div>
       {tab === "uvw" && <div className="uv-stage"><div className="uv-frame" ref={uvFrameRef} onTouchStart={touchGestures.onTouchStart} onTouchMove={touchGestures.onTouchMove} onTouchEnd={touchGestures.onTouchEnd}><UVCanvas geometry={geometry} textureUrl={textureUrl} background={uvBackground} colour={uvColour} canvasRef={uvCanvasRef} selection={selection} uvNonce={history.length + future.length} uvView={uvView} /></div><div className="uv-footer"><span>UV SPACE 0—1 · {transformMode}{uvView.zoom !== 1 || uvView.panX !== 0 || uvView.panY !== 0 ? ` · ${uvView.zoom.toFixed(1)}x` : ""}</span><button type="button" onClick={() => applyMapping("Planar")}><Map />Planar unwrap</button></div></div>}
-      {tab === "export" && <div className="export-panel"><span className="eyebrow">04 / OUTPUT</span><h1>Export</h1><p>{textureFile ? "Your imported texture and UVs are included in every format." : "No texture imported — exports will use the checker grid."}</p><div className="export-list"><button type="button" onClick={() => confirmTexture(() => void exportGlb(object))}><Box /><span><strong>GLB</strong><small>Mesh + UVs + texture</small></span><Download /></button><button type="button" onClick={() => confirmTexture(() => void downloadObjZip())}><Box /><span><strong>OBJ + MTL + PNG</strong><small>Packaged as .zip</small></span><Download /></button><button type="button" onClick={downloadUv}><ImageIcon /><span><strong>UV Layout PNG</strong><small>1024 × 1024 wireframe</small></span><Download /></button></div><p className="stats">{modelName} · {stats.faces.toLocaleString()} faces · {stats.vertices.toLocaleString()} verts</p><div className="hidden-canvas"><UVCanvas geometry={geometry} textureUrl={textureUrl} background={uvBackground} colour={uvColour} canvasRef={uvCanvasRef} selection={selection} uvNonce={history.length + future.length} uvView={DEFAULT_UV_VIEW} /></div></div>}
+      {tab === "export" && <div className="export-panel">
+        <span className="eyebrow">04 / OUTPUT</span><h1>Export</h1>
+        <p>Choose a file format. Texture, UV, and material support differs by format; text copies may be large.</p>
+        {error && <div className="error-banner" role="alert">{error}</div>}
+        <div className="export-list">
+          <button type="button" onClick={() => confirmTexture(() => void exportGlb(object, `${exportFileStem}.glb`))}><Box /><span><strong>GLB (.glb)</strong><small>Single-file model with UVs and supported materials/textures</small></span><Download /></button>
+          <button type="button" onClick={() => confirmTexture(() => void copyTextExport("glb"))}><Copy /><span><strong>GLB as text (.txt)</strong><small>Base64 data URI; the receiving app must decode it</small></span><Download /></button>
+          <button type="button" onClick={() => confirmTexture(() => void exportGltf(object, `${exportFileStem}.gltf`))}><Box /><span><strong>glTF JSON (.gltf)</strong><small>Text-based JSON with embedded geometry and images</small></span><Download /></button>
+          <button type="button" onClick={() => confirmTexture(() => void copyTextExport("gltf"))}><Copy /><span><strong>glTF JSON as text (.txt)</strong><small>Copy and download the JSON text for pasting</small></span><Download /></button>
+          <button type="button" onClick={() => exportObj(object, `${exportFileStem}.obj`)}><Box /><span><strong>OBJ (.obj)</strong><small>Plain-text mesh with UVs/normals; no embedded texture</small></span><Download /></button>
+          <button type="button" onClick={() => void copyTextExport("obj")}><Copy /><span><strong>OBJ as text (.txt)</strong><small>Copy and download the same OBJ text</small></span><Download /></button>
+          <button type="button" onClick={() => confirmTexture(() => void downloadObjZip())}><Box /><span><strong>OBJ + MTL + texture (.zip)</strong><small>OBJ package with the uploaded base-color image, if any</small></span><Download /></button>
+          <button type="button" onClick={() => exportStl(object, `${exportFileStem}.stl`)}><Box /><span><strong>STL (.stl)</strong><small>Binary surface geometry only; no UVs, textures, or units</small></span><Download /></button>
+          <button type="button" onClick={() => exportPly(object, `${exportFileStem}.ply`)}><Box /><span><strong>PLY ASCII (.ply)</strong><small>Mesh attributes and UVs where present; no texture images</small></span><Download /></button>
+          <button type="button" onClick={downloadUv}><ImageIcon /><span><strong>UV Layout PNG</strong><small>1024 × 1024 wireframe preview</small></span><Download /></button>
+        </div>
+        <p className="stats">{modelName} · {stats.faces.toLocaleString()} faces · {stats.vertices.toLocaleString()} verts</p>
+        <div className="hidden-canvas"><UVCanvas geometry={geometry} textureUrl={textureUrl} background={uvBackground} colour={uvColour} canvasRef={uvCanvasRef} selection={selection} uvNonce={history.length + future.length} uvView={DEFAULT_UV_VIEW} /></div>
+      </div>}
     </section>
     <input ref={modelInput} className="sr-only" type="file" multiple onChange={(event) => void onModel(event)} /><input ref={textureInput} className="sr-only" type="file" accept="image/*" onChange={onTexture} /><input ref={slotInput} className="sr-only" type="file" accept="image/*" onChange={onSlotTexture} /><input ref={colourInput} className="sr-only" type="color" value={uvColour} onChange={(event) => { setUvColour(event.target.value); setUvBackground("colour"); }} />
     {texturePrompt && <div className="modal-scrim texture-prompt-scrim"><section className="texture-prompt" role="dialog" aria-modal="true" aria-labelledby="texture-prompt-title" aria-describedby="texture-prompt-description"><span className="eyebrow">TEXTURE</span><h2 id="texture-prompt-title">Add a texture?</h2><p id="texture-prompt-description">This model has no active texture. Choose an image from Files or Photos to apply it to the model.</p><div className="texture-prompt-actions"><button type="button" className="texture-prompt-secondary" onClick={() => setTexturePrompt(false)}>Not now</button><button type="button" className="texture-prompt-primary" onClick={() => { setTexturePrompt(false); textureInput.current?.click(); }}>Choose texture</button></div></section></div>}

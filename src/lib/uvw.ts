@@ -8,6 +8,8 @@ import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { OBJExporter } from "three/examples/jsm/exporters/OBJExporter.js";
+import { PLYExporter } from "three/examples/jsm/exporters/PLYExporter.js";
+import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 
 export type PrimitiveName = "Box" | "Sphere" | "Cylinder" | "Torus" | "Knot" | "Plane";
 
@@ -544,12 +546,50 @@ export function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-export async function exportGlb(root: THREE.Object3D) {
+export async function exportGlb(root: THREE.Object3D, filename = "uvw-model.glb") {
   const data = await new GLTFExporter().parseAsync(root, { binary: true });
-  downloadBlob(new Blob([data as ArrayBuffer], { type: "model/gltf-binary" }), "uvw-model.glb");
+  downloadBlob(new Blob([data as ArrayBuffer], { type: "model/gltf-binary" }), filename);
 }
 
-export function exportObj(root: THREE.Object3D) {
+export async function exportGltf(root: THREE.Object3D, filename = "uvw-model.gltf") {
+  const data = await new GLTFExporter().parseAsync(root, { binary: false });
+  downloadBlob(new Blob([JSON.stringify(data)], { type: "model/gltf+json" }), filename);
+}
+
+export function exportObj(root: THREE.Object3D, filename = "uvw-model.obj") {
   const source = new OBJExporter().parse(root);
-  downloadBlob(new Blob([source], { type: "text/plain" }), "uvw-model.obj");
+  downloadBlob(new Blob([source], { type: "text/plain;charset=utf-8" }), filename);
+}
+
+export function exportStl(root: THREE.Object3D, filename = "uvw-model.stl") {
+  const data = new STLExporter().parse(root, { binary: true });
+  downloadBlob(new Blob([data], { type: "model/stl" }), filename);
+}
+
+export function exportPly(root: THREE.Object3D, filename = "uvw-model.ply") {
+  const data = new PLYExporter().parse(root, () => undefined, { binary: false });
+  if (typeof data !== "string") throw new Error("Could not create the ASCII PLY export.");
+  downloadBlob(new Blob([data], { type: "application/octet-stream" }), filename);
+}
+
+export type TextModelFormat = "glb" | "gltf" | "obj";
+
+export async function createModelExportText(root: THREE.Object3D, format: TextModelFormat): Promise<string> {
+  if (format === "obj") return new OBJExporter().parse(root);
+
+  if (format === "gltf") {
+    const data = await new GLTFExporter().parseAsync(root, { binary: false });
+    return JSON.stringify(data);
+  }
+
+  const data = await new GLTFExporter().parseAsync(root, { binary: true });
+  const reader = new FileReader();
+  const blob = new Blob([data as ArrayBuffer], { type: "model/gltf-binary" });
+  return new Promise((resolve, reject) => {
+    reader.onload = () => typeof reader.result === "string"
+      ? resolve(reader.result)
+      : reject(new Error("Could not convert the GLB to Base64 text."));
+    reader.onerror = () => reject(reader.error ?? new Error("Could not convert the GLB to Base64 text."));
+    reader.readAsDataURL(blob);
+  });
 }
