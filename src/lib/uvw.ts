@@ -101,7 +101,113 @@ function createImportManager(assets: ImportAsset[]) {
   return { manager, dispose: () => urls.forEach((url) => URL.revokeObjectURL(url)) };
 }
 
-export type LoadedModel = { scene: THREE.Object3D; format: "obj" | "glb" | "gltf" | "stl" | "3mf" | "fbx" | "ply" | "dae"; sourceName: string };
+type OcctNode = { name?: string; meshes?: number[]; children?: OcctNode[] };
+type OcctCadMesh = {
+  name?: string;
+  color?: number[];
+  brep_faces?: Array<{ first: number; last: number; color?: number[] | null }>;
+  attributes: { position: { array: ArrayLike<number> }; normal?: { array: ArrayLike<number> } };
+  index: { array: ArrayLike<number> };
+};
+type OcctResult = { success: boolean; root?: OcctNode; meshes?: OcctCadMesh[] };
+type OcctImporter = {
+  ReadStepFile: (buffer: Uint8Array, options: Record<string, unknown> | null) => OcctResult;
+  ReadIgesFile: (buffer: Uint8Array, options: Record<string, unknown> | null) => OcctResult;
+};
+type OcctImporterFactory = (options?: { locateFile?: (path: string) => string }) => Promise<OcctImporter>;
+
+declare global {
+  interface Window { occtimportjs?: OcctImporterFactory }
+}
+
+let occtImporterPromise: Promise<OcctImporter> | null = null;
+
+function loadOcctImporter() {
+  if (typeof window === "undefined" || typeof document === "undefined") return Promise.reject(new Error("CAD import is only available in the browser."));
+  if (!occtImporterPromise) {
+    const initialization = new Promise<OcctImporter>((resolve, reject) => {
+      const initialize = () => {
+        const factory = window.occtimportjs;
+        if (!factory) { reject(new Error("The CAD import engine did not initialize.")); return; }
+        factory({ locateFile: (path) => `${import.meta.env.BASE_URL}decoders/step/${path.split("/").pop() ?? path}` }).then(resolve, reject);
+      };
+      if (window.occtimportjs) { initialize(); return; }
+      const script = document.createElement("script");
+      script.src = `${import.meta.env.BASE_URL}decoders/step/occt-import-js.js`;
+      script.async = true;
+      script.onload = initialize;
+      script.onerror = () => { script.remove(); reject(new Error("Could not download the CAD import engine.")); };
+      document.head.appendChild(script);
+    });
+    occtImporterPromise = initialization.catch((error: unknown) => { occtImporterPromise = null; throw error; });
+  }
+  return occtImporterPromise;
+}
+
+function cadMaterialColor(values?: number[] | null) {
+  const rgb = values && values.length >= 3 ? values.slice(0, 3) : [0.72, 0.75, 0.79];
+  const scale = Math.max(...rgb) > 1 ? 1 / 255 : 1;
+  return new THREE.Color(rgb[0]! * scale, rgb[1]! * scale, rgb[2]! * scale);
+}
+
+function buildCadMesh(data: OcctCadMesh) {
+  const positions = Array.from(data.attributes.position.array);
+  const indices = Array.from(data.index.array);
+  if (!positions.length || positions.length % 3 !== 0 || !indices.length || indices.length % 3 !== 0) throw new Error("The CAD file contains invalid triangle geometry.");
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  const normals = data.attributes.normal?.array;
+  if (normals && normals.length === positions.length) geometry.setAttribute("normal", new THREE.Float32BufferAttribute(Array.from(normals), 3));
+  else geometry.computeVertexNormals();
+  geometry.setIndex(indices);
+
+  const materials: THREE.MeshStandardMaterial[] = [];
+  const materialIndices = new Map<number, number>();
+  const getMaterialIndex = (color?: number[] | null) => {
+    const materialColor = cadMaterialColor(color);
+    const key = materialColor.getHex();
+    let materialIndex = materialIndices.get(key);
+    if (materialIndex === undefined) {
+      materialIndex = materials.length;
+      materials.push(new THREE.MeshStandardMaterial({ color: materialColor, metalness: 0.05, roughness: 0.72 }));
+      materialIndices.set(key, materialIndex);
+    }
+    return materialIndex;
+  };
+  const fallbackMaterial = getMaterialIndex(data.color);
+  const triangleCount = indices.length / 3;
+  let nextTriangle = 0;
+  const faces = [...(data.brep_faces ?? [])].sort((left, right) => left.first - right.first);
+  for (const face of faces) {
+    const first = Math.max(nextTriangle, Math.max(0, Math.floor(face.first)));
+    const end = Math.min(triangleCount, Math.floor(face.last) + 1);
+    if (first > nextTriangle) geometry.addGroup(nextTriangle * 3, (first - nextTriangle) * 3, fallbackMaterial);
+    if (end > first) geometry.addGroup(first * 3, (end - first) * 3, getMaterialIndex(face.color ?? data.color));
+    nextTriangle = Math.max(nextTriangle, end);
+  }
+  if (nextTriangle < triangleCount) geometry.addGroup(nextTriangle * 3, (triangleCount - nextTriangle) * 3, fallbackMaterial);
+  const mesh = new THREE.Mesh(geometry, materials.length > 1 ? materials : materials[0]!);
+  mesh.name = data.name ?? "CAD Part";
+  return mesh;
+}
+
+function buildCadScene(result: OcctResult) {
+  if (!result.success || !result.root || !result.meshes?.length) throw new Error("The CAD file could not be parsed into 3D geometry.");
+  const buildNode = (node: OcctNode): THREE.Group => {
+    const group = new THREE.Group();
+    group.name = node.name ?? "CAD Assembly";
+    for (const meshIndex of node.meshes ?? []) {
+      const meshData = result.meshes?.[meshIndex];
+      if (!meshData) throw new Error("The CAD file references missing mesh data.");
+      group.add(buildCadMesh(meshData));
+    }
+    for (const child of node.children ?? []) group.add(buildNode(child));
+    return group;
+  };
+  return buildNode(result.root);
+}
+
+export type LoadedModel = { scene: THREE.Object3D; format: "obj" | "glb" | "gltf" | "stl" | "3mf" | "fbx" | "ply" | "dae" | "step" | "iges"; sourceName: string };
 
 function waitForManagerResources(manager: THREE.LoadingManager) {
   let started = false;
@@ -114,8 +220,8 @@ function waitForManagerResources(manager: THREE.LoadingManager) {
 
 export async function loadModel(files: File[]): Promise<LoadedModel> {
   const assets = await getImportAssets(files);
-  const primary = assets.find((asset) => ["glb", "gltf", "obj", "stl", "3mf", "fbx", "ply", "dae"].includes(assetExtension(asset)));
-  if (!primary) throw new Error("No supported model found. Choose OBJ, GLB, glTF, STL, 3MF, FBX, PLY, COLLADA, or a ZIP bundle containing one of those formats.");
+  const primary = assets.find((asset) => ["glb", "gltf", "obj", "stl", "3mf", "fbx", "ply", "dae", "step", "stp", "iges", "igs"].includes(assetExtension(asset)));
+  if (!primary) throw new Error("No supported model found. Choose OBJ, GLB, glTF, STL, 3MF, FBX, PLY, COLLADA, STEP, IGES, or a ZIP bundle containing one of those formats.");
   const extension = assetExtension(primary);
   const { manager, dispose } = createImportManager(assets);
   try {
@@ -206,7 +312,14 @@ export async function loadModel(files: File[]): Promise<LoadedModel> {
       await waitForTextures();
       return { scene: collada.scene, format: "dae", sourceName: primary.file.name };
     }
-    throw new Error("Choose OBJ, GLB, glTF, STL, 3MF, FBX, PLY, COLLADA, or a ZIP bundle containing a supported model.");
+    if (["step", "stp", "iges", "igs"].includes(extension)) {
+      const importer = await loadOcctImporter();
+      const contents = new Uint8Array(await primary.file.arrayBuffer());
+      const isStep = extension === "step" || extension === "stp";
+      const result = isStep ? importer.ReadStepFile(contents, null) : importer.ReadIgesFile(contents, null);
+      return { scene: buildCadScene(result), format: isStep ? "step" : "iges", sourceName: primary.file.name };
+    }
+    throw new Error("Choose OBJ, GLB, glTF, STL, 3MF, FBX, PLY, COLLADA, STEP, IGES, or a ZIP bundle containing a supported model.");
   } finally {
     dispose();
   }

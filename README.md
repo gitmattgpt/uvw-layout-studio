@@ -11,8 +11,11 @@ A browser-based UV mapping editor for importing 3D models, assigning material te
 - **Autodesk FBX** (`.fbx`)
 - **Stanford PLY** (`.ply`)
 - **COLLADA** (`.dae`)
+- **STEP** (`.step`, `.stp`) and **IGES** (`.iges`, `.igs`) CAD models
 
 For models that reference external files (including `.gltf`, OBJ/MTL, FBX, and COLLADA), select the model and its companion files together, or place the complete set in a `.zip` bundle. GLB and 3MF commonly package their resources inside the model file.
+
+STEP and IGES files are tessellated into triangle meshes for UV editing; parametric CAD solids/features are not retained. The OpenCascade-based WebAssembly parser is loaded only when a STEP or IGES file is imported (about 7.3 MB). Its license notices are included in `public/decoders/step/`.
 
 **`.3ma` is not currently supported.** If you meant `.3mf`, that format is supported.
 
