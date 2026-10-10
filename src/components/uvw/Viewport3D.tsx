@@ -34,6 +34,10 @@ type SelectionCallback = (
   mode: SelectionMode,
 ) => void;
 
+const LONG_PRESS_DELAY_MS = 450;
+const ORBIT_DRAG_THRESHOLD_PX = 7;
+const MARQUEE_DRAG_THRESHOLD_PX = 5;
+
 function CameraRig({
   view,
   focusNonce,
@@ -461,11 +465,23 @@ function SelectionInput({
       x: number;
       y: number;
       dragged: boolean;
+      orbiting: boolean;
+      longPressActivated: boolean;
+      longPressTimer: number | null;
       previousControlsEnabled: boolean | null;
     } | null = null;
+    const clearLongPressTimer = (current: NonNullable<typeof gesture>) => {
+      if (current.longPressTimer !== null) {
+        window.clearTimeout(current.longPressTimer);
+        current.longPressTimer = null;
+      }
+    };
     const release = () => {
-      if (orbit && gesture?.previousControlsEnabled !== null)
-        orbit.enabled = gesture?.previousControlsEnabled ?? true;
+      const current = gesture;
+      if (!current) return;
+      clearLongPressTimer(current);
+      if (orbit && current.longPressActivated && current.previousControlsEnabled !== null)
+        orbit.enabled = current.previousControlsEnabled;
       gesture = null;
       latest.current.onRectangleChange(null);
     };
@@ -479,37 +495,60 @@ function SelectionInput({
         x: event.clientX,
         y: event.clientY,
         dragged: false,
-        previousControlsEnabled: orbit?.enabled ?? null,
+        orbiting: false,
+        longPressActivated: false,
+        longPressTimer: null,
+        previousControlsEnabled: null,
       };
-      if (orbit) orbit.enabled = false;
-      try {
-        canvas.setPointerCapture(event.pointerId);
-      } catch {
-        /* Pointer capture can be unavailable in embedded browsers. */
-      }
-      event.preventDefault();
-      event.stopImmediatePropagation();
+      const activeGesture = gesture;
+      activeGesture.longPressTimer = window.setTimeout(() => {
+        if (gesture !== activeGesture || activeGesture.orbiting) return;
+        activeGesture.longPressActivated = true;
+        if (orbit) {
+          activeGesture.previousControlsEnabled = orbit.enabled;
+          orbit.enabled = false;
+        }
+        const rect = canvas.getBoundingClientRect();
+        latest.current.onRectangleChange({
+          x: activeGesture.startX - rect.left,
+          y: activeGesture.startY - rect.top,
+          width: 0,
+          height: 0,
+        });
+      }, LONG_PRESS_DELAY_MS);
     };
     const onPointerMove = (event: PointerEvent) => {
       if (!gesture || event.pointerId !== gesture.pointerId) return;
-      gesture.x = event.clientX;
-      gesture.y = event.clientY;
-      if (
-        !gesture.dragged &&
-        Math.hypot(gesture.x - gesture.startX, gesture.y - gesture.startY) >= 5
-      )
-        gesture.dragged = true;
-      if (gesture.dragged) {
+      const activeGesture = gesture;
+      const distance = Math.hypot(
+        event.clientX - activeGesture.startX,
+        event.clientY - activeGesture.startY,
+      );
+      if (!activeGesture.longPressActivated) {
+        if (distance >= ORBIT_DRAG_THRESHOLD_PX) {
+          activeGesture.orbiting = true;
+          clearLongPressTimer(activeGesture);
+        }
+        return;
+      }
+      activeGesture.x = event.clientX;
+      activeGesture.y = event.clientY;
+      if (!activeGesture.dragged && distance >= MARQUEE_DRAG_THRESHOLD_PX)
+        activeGesture.dragged = true;
+      if (activeGesture.dragged) {
         const rect = canvas.getBoundingClientRect();
         latest.current.onRectangleChange({
-          x: Math.min(gesture.startX, gesture.x) - rect.left,
-          y: Math.min(gesture.startY, gesture.y) - rect.top,
-          width: Math.abs(gesture.x - gesture.startX),
-          height: Math.abs(gesture.y - gesture.startY),
+          x: Math.min(activeGesture.startX, activeGesture.x) - rect.left,
+          y: Math.min(activeGesture.startY, activeGesture.y) - rect.top,
+          width: Math.abs(activeGesture.x - activeGesture.startX),
+          height: Math.abs(activeGesture.y - activeGesture.startY),
         });
       }
       event.preventDefault();
       event.stopImmediatePropagation();
+    };
+    const onContextMenu = (event: MouseEvent) => {
+      if (gesture?.longPressActivated) event.preventDefault();
     };
     const onPointerUp = (event: PointerEvent) => {
       if (!gesture || event.pointerId !== gesture.pointerId) return;
@@ -517,9 +556,7 @@ function SelectionInput({
       const config = latest.current;
       const rect = canvas.getBoundingClientRect();
       try {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        if (currentGesture.dragged) {
+        if (currentGesture.longPressActivated && currentGesture.dragged) {
           const bounds = {
             left: Math.min(currentGesture.startX, event.clientX),
             top: Math.min(currentGesture.startY, event.clientY),
@@ -536,7 +573,7 @@ function SelectionInput({
           );
           if (target) config.onSelect(target.mesh, target.hit, config.element, config.mode);
           else if (config.mode === "Select") config.onClear();
-        } else {
+        } else if (!currentGesture.orbiting) {
           const target = pickClick(
             config.object,
             camera,
@@ -550,12 +587,6 @@ function SelectionInput({
           else if (config.mode === "Select") config.onClear();
         }
       } finally {
-        try {
-          if (canvas.hasPointerCapture(event.pointerId))
-            canvas.releasePointerCapture(event.pointerId);
-        } catch {
-          /* Ignore browsers without pointer capture. */
-        }
         release();
       }
     };
@@ -567,11 +598,13 @@ function SelectionInput({
     canvas.addEventListener("pointermove", onPointerMove, true);
     canvas.addEventListener("pointerup", onPointerUp, true);
     canvas.addEventListener("pointercancel", onPointerCancel, true);
+    canvas.addEventListener("contextmenu", onContextMenu, true);
     return () => {
       canvas.removeEventListener("pointerdown", onPointerDown, true);
       canvas.removeEventListener("pointermove", onPointerMove, true);
       canvas.removeEventListener("pointerup", onPointerUp, true);
       canvas.removeEventListener("pointercancel", onPointerCancel, true);
+      canvas.removeEventListener("contextmenu", onContextMenu, true);
       release();
     };
   }, [camera, controls, gl, raycaster]);
@@ -605,7 +638,9 @@ export function Viewport3D({
 }) {
   const [selectionRectangle, setSelectionRectangle] = useState<SelectionRectangle | null>(null);
   return (
-    <div className="selection-viewport h-full min-h-0 w-full">
+    <div
+      className={`selection-viewport h-full min-h-0 w-full${selectionRectangle ? " is-box-selecting" : ""}`}
+    >
       <Canvas
         dpr={[1, 1.5]}
         orthographic={view === "ortho"}
@@ -662,7 +697,7 @@ export function Viewport3D({
       </Canvas>
       {selectionRectangle && (
         <div
-          className="selection-rectangle"
+          className={`selection-rectangle${selectionRectangle.width === 0 && selectionRectangle.height === 0 ? " is-armed" : ""}`}
           aria-hidden="true"
           style={{
             left: selectionRectangle.x,

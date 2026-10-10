@@ -120,8 +120,10 @@ button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .texture-loaded img { width: 34px; height: 34px; border: 1px solid var(--border); border-radius: var(--radius-sm); object-fit: cover; }
 .viewport-wrap { position: relative; height: 100%; min-height: 440px; }
 .selection-viewport { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; touch-action: none; }
-.selection-viewport canvas { display: block; touch-action: none; cursor: crosshair; }
+.selection-viewport canvas { display: block; touch-action: none; cursor: grab; }
+.selection-viewport.is-box-selecting canvas { cursor: crosshair !important; }
 .selection-rectangle { position: absolute; z-index: 5; border: 1px solid var(--primary); background: color-mix(in srgb, var(--primary) 14%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 30%, transparent); pointer-events: none; }
+.selection-rectangle.is-armed { width: 8px !important; height: 8px !important; border-radius: 50%; transform: translate(-50%, -50%); }
 .view-label { position: absolute; left: 18px; bottom: 18px; font-family: var(--font-mono); font-size: 12px; }
 .viewport-info { position: absolute; right: 18px; bottom: 18px; display: flex; flex-direction: column; text-align: right; font-family: var(--font-mono); font-size: 10px; color: var(--quiet); }
 .viewport-info strong { color: var(--foreground); margin-top: 3px; }
