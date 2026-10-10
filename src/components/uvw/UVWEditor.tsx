@@ -4,12 +4,13 @@ import {
   Lock, Map, MousePointer2, Move, Redo2, RotateCcw, Scissors, Shapes, Trash2, Undo2, Unlock, Upload, X, ZoomIn,
 } from "lucide-react";
 import * as THREE from "three";
+import { clone as cloneWithSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import JSZip from "jszip";
 import { Viewport3D, type CameraState, type ViewName } from "./Viewport3D";
 import { faceVertex, getMeshes, updateSelection, type ElementType, type Selection } from "@/lib/selection";
 import {
   applyTexture, applyTextureToSlot, boxUnwrap, createCheckerTexture, createModelExportText, cylindricalUnwrap, downloadBlob,
-  exportGlb, exportGltf, exportObj, exportPly, exportStl, getFirstGeometry, getStats, hasBaseColorTexture, loadModel,
+  exportFbx, exportGlb, exportGltf, exportObj, exportPly, exportStl, getFirstGeometry, getStats, hasBaseColorTexture, loadModel,
   normalizeModel, planarUnwrap, primitiveGeometry, transformUvs, type PrimitiveName, type TextModelFormat,
 } from "../../lib/uvw";
 
@@ -53,7 +54,7 @@ function ToolButton({ label, active, disabled, menu, children, onClick }: { labe
 const DEFAULT_UV_VIEW: UVView = { zoom: 1, panX: 0, panY: 0 };
 
 function cloneObjectSnapshot<T extends THREE.Object3D>(source: T): T {
-  const snapshot = source.clone(true) as T;
+  const snapshot = cloneWithSkeleton(source) as T;
   const sourceMeshes = getMeshes(source);
   const snapshotMeshes = getMeshes(snapshot);
   sourceMeshes.forEach((mesh, index) => {
@@ -171,7 +172,7 @@ export function UVWEditor() {
   useEffect(() => () => { textureObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url)); textureObjectUrlsRef.current.clear(); }, []);
   useEffect(() => { if (tab !== "uvw") setUvView(DEFAULT_UV_VIEW); }, [tab]);
   const checkpoint = () => { setHistory((items) => [...items.slice(-19), cloneObjectSnapshot(object)]); setFuture([]); };
-  const commit = (message: string) => { setObject(object.clone(true)); setNotice(message); };
+  const commit = (message: string) => { setObject(cloneWithSkeleton(object) as THREE.Group); setNotice(message); };
   const undo = () => { const previous = history.at(-1); if (!previous) return; setFuture((items) => [cloneObjectSnapshot(object), ...items]); setHistory((items) => items.slice(0, -1)); setObject(previous); setNotice("Undid last change"); };
   const redo = () => { const next = future[0]; if (!next) return; setHistory((items) => [...items, cloneObjectSnapshot(object)]); setFuture((items) => items.slice(1)); setObject(next); setNotice("Redid change"); };
   const selectPrimitive = (name: PrimitiveName) => { checkpoint(); const next = makePrimitive(name); if (texture) applyTexture(next, texture, wireframe); setPrimitive(name); setModelName(name); setSelection(null); setObject(next); setError(null); setNotice(`${name} created`); setTab("view"); };
@@ -183,7 +184,7 @@ export function UVWEditor() {
     try {
       const loaded = await loadModel(files);
       const hasImportedTexture = hasBaseColorTexture(loaded.scene);
-      const next = normalizeModel(loaded.scene);
+      const next = normalizeModel(loaded.scene, loaded.animations);
       applyTexture(next, texture, wireframe);
       setSelection(null); setObject(next); setModelName(loaded.sourceName.replace(/\.[^.]+$/, ""));
       if (loaded.format === "obj") { setMaterialMode("obj"); setActiveSlot("obj:Diffuse Color"); }
@@ -205,6 +206,11 @@ export function UVWEditor() {
   const performTransform = () => { const amount = Number(numericValue); if (!Number.isFinite(amount)) return; checkpoint(); if (transformMode === "Rotate") transformUvs(object, { rotate: amount }); if (transformMode === "Move") transformUvs(object, { moveX: amount }); if (transformMode === "Scale") transformUvs(object, { scaleX: amount, scaleY: amount }); commit(`${transformMode} applied`); };
   const exportFileStem = modelName.replace(/\.[^.]+$/, "").trim().replace(/[^a-zA-Z0-9._-]+/g, "-") || "uvw-model";
   const downloadUv = () => uvCanvasRef.current?.toBlob((blob) => { if (blob) downloadBlob(blob, `${exportFileStem}-uv.png`); }, "image/png");
+  const downloadFbx = async () => {
+    setError(null); setNotice("Exporting FBX…");
+    try { await exportFbx(object, `${exportFileStem}.fbx`); setNotice("FBX exported"); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : "Could not export FBX."); setNotice("FBX export failed"); }
+  };
   const confirmTexture = (action: () => void) => { if (textureFile || hasBaseColorTexture(object) || window.confirm("No texture is loaded. Continue without an imported texture?")) action(); else textureInput.current?.click(); };
   const downloadObjZip = async () => {
     const zip = new JSZip();
@@ -293,6 +299,7 @@ export function UVWEditor() {
         {error && <div className="error-banner" role="alert">{error}</div>}
         <div className="export-list">
           <button type="button" onClick={() => confirmTexture(() => void exportGlb(object, `${exportFileStem}.glb`))}><Box /><span><strong>GLB (.glb)</strong><small>Single-file model with UVs and supported materials/textures</small></span><Download /></button>
+          <button type="button" onClick={() => confirmTexture(() => void downloadFbx())}><Box /><span><strong>FBX (.fbx)</strong><small>Binary; includes bones, skin weights, and imported animation clips when present. PBR materials convert to FBX Phong.</small></span><Download /></button>
           <button type="button" onClick={() => confirmTexture(() => void copyTextExport("glb"))}><Copy /><span><strong>GLB as text (.txt)</strong><small>Base64 data URI; the receiving app must decode it</small></span><Download /></button>
           <button type="button" onClick={() => confirmTexture(() => void exportGltf(object, `${exportFileStem}.gltf`))}><Box /><span><strong>glTF JSON (.gltf)</strong><small>Text-based JSON with embedded geometry and images</small></span><Download /></button>
           <button type="button" onClick={() => confirmTexture(() => void copyTextExport("gltf"))}><Copy /><span><strong>glTF JSON as text (.txt)</strong><small>Copy and download the JSON text for pasting</small></span><Download /></button>

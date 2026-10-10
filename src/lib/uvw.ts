@@ -209,7 +209,12 @@ function buildCadScene(result: OcctResult) {
   return buildNode(result.root);
 }
 
-export type LoadedModel = { scene: THREE.Object3D; format: "obj" | "glb" | "gltf" | "stl" | "3mf" | "fbx" | "ply" | "dae" | "step" | "iges"; sourceName: string };
+export type LoadedModel = {
+  scene: THREE.Object3D;
+  animations?: THREE.AnimationClip[];
+  format: "obj" | "glb" | "gltf" | "stl" | "3mf" | "fbx" | "ply" | "dae" | "step" | "iges";
+  sourceName: string;
+};
 
 function waitForManagerResources(manager: THREE.LoadingManager) {
   let started = false;
@@ -266,7 +271,7 @@ export async function loadModel(files: File[]): Promise<LoadedModel> {
         const loader = new GLTFLoader(manager).setDRACOLoader(dracoLoader);
         if (ktx2Loader) loader.setKTX2Loader(ktx2Loader);
         const gltf = await loader.parseAsync(await primary.file.arrayBuffer(), primary.path.includes("/") ? `${primary.path.slice(0, primary.path.lastIndexOf("/"))}/` : "");
-        return { scene: gltf.scene, format: extension, sourceName: primary.file.name };
+        return { scene: gltf.scene, animations: gltf.animations, format: extension, sourceName: primary.file.name };
       } finally {
         dracoLoader.dispose();
         ktx2Loader?.dispose();
@@ -294,7 +299,7 @@ export async function loadModel(files: File[]): Promise<LoadedModel> {
       const directory = primary.path.includes("/") ? `${primary.path.slice(0, primary.path.lastIndexOf("/"))}/` : "";
       const scene = new FBXLoader(manager).parse(await primary.file.arrayBuffer(), directory);
       await waitForTextures();
-      return { scene, format: "fbx", sourceName: primary.file.name };
+      return { scene, animations: scene.animations, format: "fbx", sourceName: primary.file.name };
     }
     if (extension === "ply") {
       const { PLYLoader } = await import("three/examples/jsm/loaders/PLYLoader.js");
@@ -312,7 +317,7 @@ export async function loadModel(files: File[]): Promise<LoadedModel> {
       const collada = new ColladaLoader(manager).parse(await primary.file.text(), directory);
       if (!collada?.scene) throw new Error("The COLLADA file could not be parsed.");
       await waitForTextures();
-      return { scene: collada.scene, format: "dae", sourceName: primary.file.name };
+      return { scene: collada.scene, animations: collada.scene.animations, format: "dae", sourceName: primary.file.name };
     }
     if (["step", "stp", "iges", "igs"].includes(extension)) {
       const importer = await loadOcctImporter();
@@ -327,8 +332,9 @@ export async function loadModel(files: File[]): Promise<LoadedModel> {
   }
 }
 
-export function normalizeModel(source: THREE.Object3D): THREE.Group {
+export function normalizeModel(source: THREE.Object3D, animations: THREE.AnimationClip[] = source.animations): THREE.Group {
   const group = new THREE.Group();
+  group.animations = [...animations];
   group.add(source);
   const box = new THREE.Box3().setFromObject(group);
   const size = box.getSize(new THREE.Vector3());
@@ -549,6 +555,14 @@ export function downloadBlob(blob: Blob, filename: string) {
 export async function exportGlb(root: THREE.Object3D, filename = "uvw-model.glb") {
   const data = await new GLTFExporter().parseAsync(root, { binary: true });
   downloadBlob(new Blob([data as ArrayBuffer], { type: "model/gltf-binary" }), filename);
+}
+
+export async function exportFbx(root: THREE.Object3D, filename = "uvw-model.fbx") {
+  const { FBXExporter } = await import("@comfyorg/fbx-exporter-three");
+  const bytes = await new FBXExporter().parseAsync(root);
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  downloadBlob(new Blob([buffer], { type: "application/octet-stream" }), filename);
 }
 
 export async function exportGltf(root: THREE.Object3D, filename = "uvw-model.gltf") {

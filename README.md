@@ -22,13 +22,14 @@ STEP and IGES files are tessellated into triangle meshes for UV editing; paramet
 ## Supported model exports
 
 - **GLB** (`.glb`) and **glTF JSON** (`.gltf`), including embedded geometry and supported texture/material data
+- **FBX** (`.fbx`) binary export, including bones, skin weights, and imported animation clips when present; physically based materials are converted to FBX Phong, so material appearance may differ
 - **OBJ** (`.obj`) as plain text with mesh geometry, UVs, and normals; texture images are provided separately in the optional ZIP package
 - **STL** (`.stl`) as binary surface geometry; STL does not preserve UVs, textures, or units
 - **PLY** (`.ply`) as ASCII mesh data, including available vertex attributes and UV coordinates; PLY does not include texture images
 - **OBJ package** (`.zip`) with an MTL file and the user-uploaded base-color texture, when supplied
 - **UV layout preview** (`.png`)
 
-The editor can also create `.txt` copies for paste workflows: OBJ text remains OBJ syntax, and glTF text remains JSON. A GLB text copy is a Base64 data URI for binary GLB data; it is larger than the original file and the receiving service must decode it. A `.txt` extension does not make a new standard 3D format. 3MF, FBX, COLLADA, STEP, and IGES are import-only in the current export panel.
+The editor can also create `.txt` copies for paste workflows: OBJ text remains OBJ syntax, and glTF text remains JSON. A GLB text copy is a Base64 data URI for binary GLB data; it is larger than the original file and the receiving service must decode it. A `.txt` extension does not make a new standard 3D format. 3MF, COLLADA, STEP, and IGES are import-only in the current export panel.
 
 ## Build with Lovable
 
