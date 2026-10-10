@@ -52,16 +52,18 @@ function CameraRig({
   onCameraSave: (state: CameraState) => void;
 }) {
   const { camera, controls } = useThree();
+  const latestSavedCamera = useRef(savedCamera);
+  latestSavedCamera.current = savedCamera;
   useEffect(() => {
-    const canRestore =
-      savedCamera && savedCamera.view === view && savedCamera.focusNonce === focusNonce;
+    const saved = latestSavedCamera.current;
+    const canRestore = saved && saved.view === view && saved.focusNonce === focusNonce;
     if (canRestore) {
-      camera.position.set(...savedCamera.position);
-      camera.zoom = savedCamera.zoom;
+      camera.position.set(...saved.position);
+      camera.zoom = saved.zoom;
       camera.updateProjectionMatrix();
       if (controls && "target" in controls) {
         const orbit = controls as unknown as { target: THREE.Vector3; update: () => void };
-        orbit.target.set(...savedCamera.target);
+        orbit.target.set(...saved.target);
         orbit.update();
       }
       return;
@@ -85,7 +87,7 @@ function CameraRig({
       orbit.target.set(0, 0, 0);
       orbit.update();
     }
-  }, [camera, controls, view, focusNonce, savedCamera]);
+  }, [camera, controls, view, focusNonce]);
   useEffect(
     () => () => {
       if (!controls || !("target" in controls)) return;
