@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from "react";
 import {
-  Box, BoxSelect, Check, ChevronDown, Copy, Download, Eye, EyeClosed, EyeOff, Focus, Grid2X2, Image as ImageIcon, Layers3,
-  Lock, Map, MousePointer2, Move, Redo2, RotateCcw, Scissors, Shapes, Trash2, Undo2, Unlock, Upload, Vibrate, X, ZoomIn,
+  Box, Check, ChevronDown, CircleDot, CircleMinus, CirclePlus, Copy, Download, Eye, EyeClosed, EyeOff, Focus, Grid2X2, Image as ImageIcon, Layers3,
+  Lock, Map, Minus, MousePointer2, Move, Pentagon, Redo2, RotateCcw, Scissors, Shapes, Trash2, Triangle, Undo2, Unlock, Upload, Vibrate, X, ZoomIn,
 } from "lucide-react";
 import * as THREE from "three";
 import { clone as cloneWithSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import JSZip from "jszip";
 import { Viewport3D, type CameraState, type ViewName } from "./Viewport3D";
-import { applyMeshVisibilityAction, faceVertex, getMeshes, updateSelection, type ElementType, type Selection } from "@/lib/selection";
+import { applyMeshVisibilityAction, convertSelectionElement, faceVertex, getMeshes, updateSelection, type ElementType, type Selection, type SelectionMode } from "@/lib/selection";
 import {
   applyTexture, applyTextureToSlot, boxUnwrap, createCheckerTexture, createModelExportText, cylindricalUnwrap, downloadBlob,
   exportFbx, exportGlb, exportGltf, exportObj, exportPly, exportStl, getFirstGeometry, getStats, hasBaseColorTexture, loadModel,
@@ -139,10 +139,18 @@ function UVCanvas({ geometry, textureUrl, background, colour, canvasRef, selecti
       const uv = geometry?.getAttribute("uv"); const position = geometry?.getAttribute("position"); if (!uv || !position) return;
       ctx.strokeStyle = "#12c6d2"; ctx.lineWidth = 1.5; const index = geometry?.index; const count = index ? index.count : position.count;
       for (let i = 0; i + 2 < count; i += 3) { ctx.beginPath(); for (let j = 0; j < 3; j += 1) { const vertex = index ? index.getX(i + j) : i + j; const x = uv.getX(vertex) * size; const y = (1 - uv.getY(vertex)) * size; if (j === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); } ctx.closePath(); ctx.stroke(); }
-      if (selection && geometry) { const sel = geometry; ctx.strokeStyle = "#f26b2a"; ctx.fillStyle = "rgba(242,107,42,0.35)"; ctx.lineWidth = 2.5;
-        for (const f of selection.faces) { const pts = [0, 1, 2].map((c) => { const v = faceVertex(sel, f, c); return [uv.getX(v) * size, (1 - uv.getY(v)) * size] as const; });
-          if (selection.element === "Vertex") { ctx.fillStyle = "#f26b2a"; pts.forEach(([x, y]) => { ctx.fillRect(x - 5, y - 5, 10, 10); }); continue; }
-          ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); if (selection.element !== "Segment") ctx.fill(); ctx.stroke(); } }
+      if (selection && geometry) {
+        ctx.strokeStyle = "#f26b2a"; ctx.fillStyle = "rgba(242,107,42,0.35)"; ctx.lineWidth = 2.5;
+        if (selection.element === "Vertex") {
+          ctx.fillStyle = "#f26b2a";
+          selection.vertices.forEach((vertex) => { const x = uv.getX(vertex) * size; const y = (1 - uv.getY(vertex)) * size; ctx.fillRect(x - 5, y - 5, 10, 10); });
+        } else if (selection.element === "Segment") {
+          selection.edges.forEach(([a, b]) => { ctx.beginPath(); ctx.moveTo(uv.getX(a) * size, (1 - uv.getY(a)) * size); ctx.lineTo(uv.getX(b) * size, (1 - uv.getY(b)) * size); ctx.stroke(); });
+        } else {
+          for (const face of selection.faces) { const points = [0, 1, 2].map((corner) => { const vertex = faceVertex(geometry, face, corner); return [uv.getX(vertex) * size, (1 - uv.getY(vertex)) * size] as const; });
+            ctx.beginPath(); points.forEach(([x, y], index) => (index ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+        }
+      }
     };
     if (background !== "texture" || !textureUrl) { draw(); return; } const image = new Image(); image.onload = () => draw(image); image.src = textureUrl;
   }, [geometry, textureUrl, background, colour, canvasRef, selection, uvNonce]);
@@ -157,7 +165,7 @@ export function UVWEditor() {
   const [importing, setImporting] = useState(false); const [materialsOpen, setMaterialsOpen] = useState(false); const [texturePrompt, setTexturePrompt] = useState(false); const [materialMode, setMaterialMode] = useState<MaterialMode>("gltf");
   const [wireframe, setWireframe] = useState(false); const [locked, setLocked] = useState(false); const [hidden, setHidden] = useState(false); const [vibrationEnabled, setVibrationEnabled] = useState(true);
   const [view, setView] = useState<ViewName>("persp"); const [focusNonce, setFocusNonce] = useState(0); const [mapping, setMapping] = useState<MappingMode>("Planar");
-  const [selection, setSelection] = useState<Selection>(null); const [elementType, setElementType] = useState<ElementType>("Polygon"); const [selectionMode, setSelectionMode] = useState("Select");
+  const [selection, setSelection] = useState<Selection>(null); const [elementType, setElementType] = useState<ElementType>("Polygon"); const [selectionMode, setSelectionMode] = useState<SelectionMode>("Select");
   const [uvBackground, setUvBackground] = useState<UvBackground>("checker"); const [uvColour, setUvColour] = useState("#282c33"); const [transformMode, setTransformMode] = useState<TransformMode>("Select");
   const [numericValue, setNumericValue] = useState("90"); const [history, setHistory] = useState<THREE.Group[]>([]); const [future, setFuture] = useState<THREE.Group[]>([]);
   const [slots, setSlots] = useState<Record<string, MaterialAsset>>({}); const [activeSlot, setActiveSlot] = useState("gltf:Base Color"); const [pendingSlot, setPendingSlot] = useState<PendingTextureSlot | null>(null);
@@ -204,7 +212,7 @@ export function UVWEditor() {
   const hideSelection = () => { if (!applyMeshVisibilityAction(object, selectedMesh, "hide-selection")) { setNotice("Select a mesh first"); return; } setHidden(getMeshes(object).some((mesh) => !mesh.visible)); setSelection(null); commit("Selection hidden"); };
   const hideUnselected = () => { if (!applyMeshVisibilityAction(object, selectedMesh, "hide-unselected")) { setNotice("Select a mesh first"); return; } setHidden(getMeshes(object).some((mesh) => !mesh.visible)); commit("Unselected geometry hidden"); };
   const showHidden = () => { if (!applyMeshVisibilityAction(object, selectedMesh, "show-hidden")) { setHidden(false); setNotice("Nothing is hidden"); return; } setHidden(false); commit("Hidden geometry restored"); };
-  const toggleVibration = () => { setVibrationEnabled((enabled) => { const next = !enabled; if (next) navigator.vibrate?.(30); return next; }); };
+  const toggleVibration = () => { const next = !vibrationEnabled; setVibrationEnabled(next); if (next) navigator.vibrate?.(30); };
   const performTransform = () => { const amount = Number(numericValue); if (!Number.isFinite(amount)) return; checkpoint(); if (transformMode === "Rotate") transformUvs(object, { rotate: amount }); if (transformMode === "Move") transformUvs(object, { moveX: amount }); if (transformMode === "Scale") transformUvs(object, { scaleX: amount, scaleY: amount }); commit(`${transformMode} applied`); };
   const exportFileStem = modelName.replace(/\.[^.]+$/, "").trim().replace(/[^a-zA-Z0-9._-]+/g, "-") || "uvw-model";
   const downloadUv = () => uvCanvasRef.current?.toBlob((blob) => { if (blob) downloadBlob(blob, `${exportFileStem}-uv.png`); }, "image/png");
@@ -268,6 +276,13 @@ export function UVWEditor() {
       setNotice("Text export failed");
     }
   };
+  const elementIcons: Record<ElementType, ReactNode> = { Vertex: <CircleDot />, Segment: <Minus />, Polygon: <Triangle />, Island: <Pentagon /> };
+  const selectionModeIcons: Record<SelectionMode, ReactNode> = { Select: <MousePointer2 />, Add: <CirclePlus />, Remove: <CircleMinus /> };
+  const elementMenu: MenuItem[] = [
+    ...(["Vertex", "Segment", "Polygon", "Island"] as ElementType[]).map((item) => ({ label: item, icon: elementIcons[item], active: elementType === item, action: () => { setElementType(item); setSelection((current) => convertSelectionElement(object, current, item)); } })),
+    { label: "Clear Selection", icon: <X />, disabled: !selection, action: () => setSelection(null) },
+  ];
+  const selectionMenu: MenuItem[] = (["Select", "Add", "Remove"] as SelectionMode[]).map((item) => ({ label: item, icon: selectionModeIcons[item], active: selectionMode === item, action: () => setSelectionMode(item) }));
   const mapMenu: MenuItem[] = (["Planar", "Box", "Cylindrical", "Auto Unwrap", "Original"] as MappingMode[]).map((item) => ({ label: item, active: mapping === item, disabled: item === "Original", action: () => applyMapping(item) }));
   const viewMenu: MenuItem[] = [{ label: "Perspective", active: view === "persp", action: () => setView("persp") }, { label: "Orthographic", active: view === "ortho", action: () => setView("ortho") }, ...(["front", "back", "left", "right", "top", "bottom"] as ViewName[]).map((item) => ({ label: `${item.charAt(0).toUpperCase()}${item.slice(1)}`, active: view === item, action: () => setView(item) }))];
   const tabs = [["import", Upload, "Import"], ["view", Box, "3D View"], ["uvw", Grid2X2, "UVW"], ["export", Download, "Export"]] as const;
@@ -279,8 +294,8 @@ export function UVWEditor() {
     {(tab === "view" || tab === "uvw") && <div className="tool-strip">
       <ToolButton label="Lock viewport" active={locked} onClick={() => setLocked(!locked)}>{locked ? <Lock /> : <Unlock />}</ToolButton>
       <ToolButton label="Hide selection" active={hidden} onClick={hideSelection} menu={[{ label: "Hide Selection", icon: <EyeClosed />, disabled: !selectedMesh, action: hideSelection }, { label: "Hide Unselected", icon: <EyeOff />, disabled: !selectedMesh, action: hideUnselected }, { label: "Show Hidden", icon: <Eye />, action: showHidden }, { label: "Vibration", icon: <Vibrate />, checked: vibrationEnabled, separated: true, action: toggleVibration }]}><Eye /></ToolButton>
-      <ToolButton label="Element type" active menu={[...["Vertex", "Segment", "Polygon", "Island"].map((label) => ({ label, active: elementType === label, action: () => { setElementType(label as ElementType); setSelection((cur) => cur ? { ...cur, element: label as ElementType } : cur); } })), { label: "Clear Selection", disabled: !selection, action: () => setSelection(null) }]}><BoxSelect /></ToolButton>
-      {tab === "view" ? <ToolButton label="Selection mode" menu={["Select", "Add", "Remove"].map((label) => ({ label, active: selectionMode === label, action: () => setSelectionMode(label) }))}><MousePointer2 /></ToolButton> : <ToolButton label="Transform" menu={["Select", "Move", "Rotate", "Scale"].map((label) => ({ label, active: transformMode === label, action: () => setTransformMode(label as TransformMode) }))}>{transformMode === "Move" ? <Move /> : transformMode === "Rotate" ? <RotateCcw /> : <MousePointer2 />}</ToolButton>}
+      <ToolButton label={`Element type: ${elementType}`} active menu={elementMenu}>{elementIcons[elementType]}</ToolButton>
+      {tab === "view" ? <ToolButton label={`Selection mode: ${selectionMode}`} active={selectionMode !== "Select"} menu={selectionMenu}>{selectionModeIcons[selectionMode]}</ToolButton> : <ToolButton label="Transform" menu={["Select", "Move", "Rotate", "Scale"].map((label) => ({ label, active: transformMode === label, action: () => setTransformMode(label as TransformMode) }))}>{transformMode === "Move" ? <Move /> : transformMode === "Rotate" ? <RotateCcw /> : <MousePointer2 />}</ToolButton>}
       {tab === "view" && <ToolButton label="Toggle wireframe" active={wireframe} onClick={toggleWireframe} menu={[{ label: wireframe ? "Wireframe Off" : "Wireframe On", active: wireframe, action: toggleWireframe }, { label: "Opacity 0.75", action: () => setNotice("Wireframe opacity set") }, { label: "Front facing only", action: () => setNotice("Front-facing picking on") }, { label: "X-ray (no limits)", action: toggleWireframe }]}><Grid2X2 /></ToolButton>}
       {tab === "view" && <ToolButton label="View mode" onClick={() => setView(view === "ortho" ? "persp" : "ortho")} menu={viewMenu}><Focus /></ToolButton>}
       <ToolButton label="Mapping" active menu={mapMenu} onClick={() => applyMapping(mapping)}><Map /></ToolButton>
@@ -293,7 +308,7 @@ export function UVWEditor() {
     {tab === "uvw" && transformMode !== "Select" && <div className="number-bar"><label>{transformMode === "Rotate" ? "Angle°" : transformMode === "Move" ? "Move X" : "Scale X"}<input value={numericValue} onChange={(event) => setNumericValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") performTransform(); }} /></label><button type="button" onClick={performTransform}>Apply</button></div>}
     <section className={`workspace workspace-${tab}`}>
       {tab === "import" && <div className="import-panel"><div className="intro"><span className="eyebrow">01 / SOURCE</span><h1>UVW Mapping Tool</h1><p>Import a model or start from a primitive</p></div>{error && <div className="error-banner" role="alert">{error}</div>}<button type="button" className="primary-action" disabled={importing} onClick={() => modelInput.current?.click()}><Upload />{importing ? "Importing…" : "Import Model"}<small>OBJ · GLB · glTF · STL · 3MF · FBX · PLY · DAE · STEP · IGES · ZIP</small></button><p className="import-format-hint">For glTF, OBJ/MTL, FBX, or COLLADA with external resources, select companion files or a ZIP. STEP/IGES are converted to triangle meshes for UV editing.</p><div className="secondary-actions"><button type="button" onClick={() => textureInput.current?.click()}><ImageIcon />Import Texture</button><button type="button" onClick={() => setMaterialsOpen(true)}><Layers3 />Materials</button></div>{textureUrl && <div className="texture-loaded"><img src={textureUrl} alt="Imported texture thumbnail" /><span>Texture loaded</span></div>}<div className="primitive-panel"><div className="section-label"><Shapes />Primitives</div><div className="primitive-grid">{primitives.map((name) => <button type="button" key={name} title={`Replace model with ${name}`} className={primitive === name ? "is-selected" : ""} onClick={() => selectPrimitive(name)}>{name}</button>)}</div></div><p className="stats">Current: {modelName} · {stats.faces.toLocaleString()} faces · {stats.vertices.toLocaleString()} verts</p></div>}
-      <div className="viewport-wrap" style={{ display: tab === "view" ? undefined : "none" }}><Viewport3D object={object} locked={locked} view={view} focusNonce={focusNonce} selection={selection} savedCamera={savedCameraRef.current} onCameraSave={(state) => { savedCameraRef.current = state; }} onPick={(mesh, face) => { setSelection((cur) => updateSelection(cur, object, mesh, face, elementType, selectionMode)); setNotice(`${elementType} · ${selectionMode}`); }} /><span className="view-label">{view.toUpperCase()}</span>{locked && view !== "persp" && <button type="button" className="unlock-view" onClick={() => { setLocked(false); setView("persp"); }}>Unlock view</button>}<div className="viewport-info"><span>{modelName}</span><strong>{stats.faces.toLocaleString()} tris</strong></div></div>
+      <div className="viewport-wrap" style={{ display: tab === "view" ? undefined : "none" }}><Viewport3D object={object} locked={locked} view={view} focusNonce={focusNonce} selection={selection} elementType={elementType} selectionMode={selectionMode} onSelect={(mesh, hit, element, mode) => { setSelection((current) => updateSelection(current, object, mesh, hit, element, mode)); if (vibrationEnabled) navigator.vibrate?.(15); setNotice(`${element} · ${mode}`); }} onClearSelection={() => { setSelection(null); setNotice("Selection cleared"); }} savedCamera={savedCameraRef.current} onCameraSave={(state) => { savedCameraRef.current = state; }} /><span className="view-label">{view.toUpperCase()}</span>{locked && view !== "persp" && <button type="button" className="unlock-view" onClick={() => { setLocked(false); setView("persp"); }}>Unlock view</button>}<div className="viewport-info"><span>{modelName}</span><strong>{stats.faces.toLocaleString()} tris</strong></div></div>
       {tab === "uvw" && <div className="uv-stage"><div className="uv-frame" ref={uvFrameRef} onTouchStart={touchGestures.onTouchStart} onTouchMove={touchGestures.onTouchMove} onTouchEnd={touchGestures.onTouchEnd}><UVCanvas geometry={geometry} textureUrl={textureUrl} background={uvBackground} colour={uvColour} canvasRef={uvCanvasRef} selection={selection} uvNonce={history.length + future.length} uvView={uvView} /></div><div className="uv-footer"><span>UV SPACE 0—1 · {transformMode}{uvView.zoom !== 1 || uvView.panX !== 0 || uvView.panY !== 0 ? ` · ${uvView.zoom.toFixed(1)}x` : ""}</span><button type="button" onClick={() => applyMapping("Planar")}><Map />Planar unwrap</button></div></div>}
       {tab === "export" && <div className="export-panel">
         <span className="eyebrow">04 / OUTPUT</span><h1>Export</h1>
