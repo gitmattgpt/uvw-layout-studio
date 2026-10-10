@@ -10,6 +10,25 @@ export function getMeshes(object: THREE.Object3D) {
   return meshes;
 }
 
+export type MeshVisibilityAction = "hide-selection" | "hide-unselected" | "show-hidden";
+
+/** Apply a hide-menu action to model meshes. Returns false when no selection/hidden meshes make it actionable. */
+export function applyMeshVisibilityAction(root: THREE.Object3D, selected: THREE.Mesh | null, action: MeshVisibilityAction): boolean {
+  const meshes = getMeshes(root);
+  if (action === "show-hidden") {
+    if (!meshes.some((mesh) => !mesh.visible)) return false;
+    meshes.forEach((mesh) => { mesh.visible = true; });
+    return true;
+  }
+  if (!selected || !meshes.includes(selected)) return false;
+  if (action === "hide-selection") {
+    selected.visible = false;
+    return true;
+  }
+  meshes.forEach((mesh) => { mesh.visible = mesh === selected; });
+  return true;
+}
+
 export function faceVertex(geometry: THREE.BufferGeometry, face: number, corner: number) {
   return geometry.index ? geometry.index.getX(face * 3 + corner) : face * 3 + corner;
 }

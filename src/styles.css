@@ -84,6 +84,14 @@ button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .tool-popover button { display: block; width: 100%; min-height: 40px; padding: 0 12px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--foreground); text-align: left; cursor: pointer; font-family: var(--font-mono); font-size: 11px; }
 .tool-popover button:hover, .tool-popover button.is-active { color: var(--primary); background: color-mix(in oklab, var(--primary) 10%, transparent); }
 .tool-popover button:disabled { color: var(--quiet); opacity: .45; cursor: not-allowed; }
+.tool-popover button.tool-menu-item { display: flex; align-items: center; gap: 10px; }
+.tool-menu-icon { width: 20px; height: 20px; flex: 0 0 20px; display: grid; place-items: center; color: var(--quiet); }
+.tool-menu-icon svg { width: 19px; height: 19px; stroke-width: 1.8; }
+.tool-popover-icons { min-width: 224px; padding: 7px; }
+.tool-popover-icons button.tool-menu-item { min-height: 46px; gap: 12px; padding-inline: 12px; font-size: 13px; }
+.tool-popover-icons button:hover .tool-menu-icon, .tool-popover-icons button.is-active .tool-menu-icon { color: var(--primary); }
+.tool-menu-check { width: 17px; height: 17px; margin-left: auto; color: var(--primary); }
+.tool-popover-icons button.is-separated { min-height: 52px; margin-top: 6px; padding-top: 7px; border-top: 1px solid var(--border); border-radius: 0; }
 .number-bar { min-height: 54px; display: flex; justify-content: center; align-items: center; gap: 8px; padding: 7px 12px; background: var(--panel); border-bottom: 1px solid var(--border); }
 .number-bar label { display: flex; align-items: center; gap: 9px; color: var(--quiet); font-family: var(--font-mono); font-size: 11px; }
 .number-bar input { width: 90px; height: 38px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--workspace); color: var(--foreground); padding: 0 10px; }

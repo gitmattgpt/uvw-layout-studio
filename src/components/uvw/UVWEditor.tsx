@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from "react";
 import {
-  Box, BoxSelect, ChevronDown, Copy, Download, Eye, Focus, Grid2X2, Image as ImageIcon, Layers3,
-  Lock, Map, MousePointer2, Move, Redo2, RotateCcw, Scissors, Shapes, Trash2, Undo2, Unlock, Upload, X, ZoomIn,
+  Box, BoxSelect, Check, ChevronDown, Copy, Download, Eye, EyeClosed, EyeOff, Focus, Grid2X2, Image as ImageIcon, Layers3,
+  Lock, Map, MousePointer2, Move, Redo2, RotateCcw, Scissors, Shapes, Trash2, Undo2, Unlock, Upload, Vibrate, X, ZoomIn,
 } from "lucide-react";
 import * as THREE from "three";
 import { clone as cloneWithSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import JSZip from "jszip";
 import { Viewport3D, type CameraState, type ViewName } from "./Viewport3D";
-import { faceVertex, getMeshes, updateSelection, type ElementType, type Selection } from "@/lib/selection";
+import { applyMeshVisibilityAction, faceVertex, getMeshes, updateSelection, type ElementType, type Selection } from "@/lib/selection";
 import {
   applyTexture, applyTextureToSlot, boxUnwrap, createCheckerTexture, createModelExportText, cylindricalUnwrap, downloadBlob,
   exportFbx, exportGlb, exportGltf, exportObj, exportPly, exportStl, getFirstGeometry, getStats, hasBaseColorTexture, loadModel,
@@ -24,7 +24,7 @@ type PendingTextureSlot = { mode: MaterialMode; label: string };
 const textureSlotKey = (mode: MaterialMode, label: string) => `${mode}:${label}`;
 const isBaseColorSlot = (mode: MaterialMode, label: string) => mode === "gltf" ? label === "Base Color" : label === "Diffuse Color";
 const isColorTextureSlot = (mode: MaterialMode, label: string) => mode === "gltf" ? ["Base Color", "Emissive", "Sheen Color", "Specular Color"].includes(label) : ["Diffuse Color", "Specular Color", "Emissive", "Reflection"].includes(label);
-type MenuItem = { label: string; disabled?: boolean; active?: boolean; action: () => void };
+type MenuItem = { label: string; icon?: ReactNode; disabled?: boolean; active?: boolean; checked?: boolean; separated?: boolean; action: () => void };
 type UVView = { zoom: number; panX: number; panY: number };
 const primitives: PrimitiveName[] = ["Box", "Sphere", "Cylinder", "Torus", "Knot", "Plane"];
 const gltfSlots: ReadonlyArray<readonly [string, string]> = [
@@ -48,7 +48,7 @@ function makePrimitive(name: PrimitiveName) {
 function ToolButton({ label, active, disabled, menu, children, onClick }: { label: string; active?: boolean; disabled?: boolean; menu?: MenuItem[]; quick?: () => void; children: ReactNode; onClick?: () => void }) {
   const [open, setOpen] = useState(false); const wrap = useRef<HTMLDivElement>(null);
   useEffect(() => { if (!open) return; const close = (event: PointerEvent) => { if (!wrap.current?.contains(event.target as Node)) setOpen(false); }; document.addEventListener("pointerdown", close); return () => document.removeEventListener("pointerdown", close); }, [open]);
-  return <div className="tool-menu-wrap" ref={wrap}><button type="button" className={`tool-button ${active || open ? "is-active" : ""}`} title={label} aria-label={label} aria-expanded={menu ? open : undefined} disabled={disabled} onClick={() => { if (menu) setOpen((v) => !v); else onClick?.(); }}>{children}{menu && <ChevronDown className="menu-caret" />}</button>{open && menu && <div className="tool-popover" role="menu">{menu.map((item) => <button type="button" role="menuitem" key={item.label} className={item.active ? "is-active" : ""} disabled={item.disabled} onClick={() => { item.action(); setOpen(false); }}>{item.label}</button>)}</div>}</div>;
+  return <div className="tool-menu-wrap" ref={wrap}><button type="button" className={`tool-button ${active || open ? "is-active" : ""}`} title={label} aria-label={label} aria-expanded={menu ? open : undefined} disabled={disabled} onClick={() => { if (menu) setOpen((v) => !v); else onClick?.(); }}>{children}{menu && <ChevronDown className="menu-caret" />}</button>{open && menu && <div className={`tool-popover ${menu.some((item) => item.icon) ? "tool-popover-icons" : ""}`} role="menu">{menu.map((item) => <button type="button" role="menuitem" key={item.label} className={`tool-menu-item ${item.active ? "is-active" : ""} ${item.separated ? "is-separated" : ""}`} disabled={item.disabled} onClick={() => { item.action(); setOpen(false); }}>{item.icon && <span className="tool-menu-icon" aria-hidden="true">{item.icon}</span>}<span>{item.label}</span>{item.checked && <Check className="tool-menu-check" aria-hidden="true" />}</button>)}</div>}</div>;
 }
 
 const DEFAULT_UV_VIEW: UVView = { zoom: 1, panX: 0, panY: 0 };
@@ -155,7 +155,7 @@ export function UVWEditor() {
   const [textureUrl, setTextureUrl] = useState<string | null>(null); const [textureFile, setTextureFile] = useState<File | null>(null);
   const [modelName, setModelName] = useState("Box"); const [notice, setNotice] = useState("Ready"); const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false); const [materialsOpen, setMaterialsOpen] = useState(false); const [texturePrompt, setTexturePrompt] = useState(false); const [materialMode, setMaterialMode] = useState<MaterialMode>("gltf");
-  const [wireframe, setWireframe] = useState(false); const [locked, setLocked] = useState(false); const [hidden, setHidden] = useState(false);
+  const [wireframe, setWireframe] = useState(false); const [locked, setLocked] = useState(false); const [hidden, setHidden] = useState(false); const [vibrationEnabled, setVibrationEnabled] = useState(true);
   const [view, setView] = useState<ViewName>("persp"); const [focusNonce, setFocusNonce] = useState(0); const [mapping, setMapping] = useState<MappingMode>("Planar");
   const [selection, setSelection] = useState<Selection>(null); const [elementType, setElementType] = useState<ElementType>("Polygon"); const [selectionMode, setSelectionMode] = useState("Select");
   const [uvBackground, setUvBackground] = useState<UvBackground>("checker"); const [uvColour, setUvColour] = useState("#282c33"); const [transformMode, setTransformMode] = useState<TransformMode>("Select");
@@ -201,8 +201,10 @@ export function UVWEditor() {
   const onSlotTexture = (event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (file && pendingSlot) { checkpoint(); loadTextureFile(file, pendingSlot); } setPendingSlot(null); event.target.value = ""; };
   const applyMapping = (mode: MappingMode) => { checkpoint(); object.traverse((item) => { if (!(item instanceof THREE.Mesh)) return; if (mode === "Box") boxUnwrap(item.geometry); else if (mode === "Cylindrical") cylindricalUnwrap(item.geometry); else planarUnwrap(item.geometry); }); setMapping(mode); commit(`${mode} mapping applied`); setTab("uvw"); };
   const toggleWireframe = () => { const next = !wireframe; setWireframe(next); applyTexture(object, texture, next); commit(`Wireframe ${next ? "on" : "off"}`); };
-  const hideSelection = () => { if (!selectedMesh) { setNotice("Select a mesh first"); return; } selectedMesh.visible = false; setHidden(true); commit("Selection hidden"); };
-  const showHidden = () => { object.traverse((item) => { item.visible = true; }); setHidden(false); commit("Hidden geometry restored"); };
+  const hideSelection = () => { if (!applyMeshVisibilityAction(object, selectedMesh, "hide-selection")) { setNotice("Select a mesh first"); return; } setHidden(getMeshes(object).some((mesh) => !mesh.visible)); setSelection(null); commit("Selection hidden"); };
+  const hideUnselected = () => { if (!applyMeshVisibilityAction(object, selectedMesh, "hide-unselected")) { setNotice("Select a mesh first"); return; } setHidden(getMeshes(object).some((mesh) => !mesh.visible)); commit("Unselected geometry hidden"); };
+  const showHidden = () => { if (!applyMeshVisibilityAction(object, selectedMesh, "show-hidden")) { setHidden(false); setNotice("Nothing is hidden"); return; } setHidden(false); commit("Hidden geometry restored"); };
+  const toggleVibration = () => { setVibrationEnabled((enabled) => { const next = !enabled; if (next) navigator.vibrate?.(30); return next; }); };
   const performTransform = () => { const amount = Number(numericValue); if (!Number.isFinite(amount)) return; checkpoint(); if (transformMode === "Rotate") transformUvs(object, { rotate: amount }); if (transformMode === "Move") transformUvs(object, { moveX: amount }); if (transformMode === "Scale") transformUvs(object, { scaleX: amount, scaleY: amount }); commit(`${transformMode} applied`); };
   const exportFileStem = modelName.replace(/\.[^.]+$/, "").trim().replace(/[^a-zA-Z0-9._-]+/g, "-") || "uvw-model";
   const downloadUv = () => uvCanvasRef.current?.toBlob((blob) => { if (blob) downloadBlob(blob, `${exportFileStem}-uv.png`); }, "image/png");
@@ -276,13 +278,13 @@ export function UVWEditor() {
     <nav className="tab-bar" aria-label="Editor sections">{tabs.map(([id, Icon, label]) => <button type="button" key={id} className={`tab-button ${tab === id ? "is-active" : ""}`} onClick={() => setTab(id)}><Icon /><span>{label}</span></button>)}</nav>
     {(tab === "view" || tab === "uvw") && <div className="tool-strip">
       <ToolButton label="Lock viewport" active={locked} onClick={() => setLocked(!locked)}>{locked ? <Lock /> : <Unlock />}</ToolButton>
-      <ToolButton label="Hide selection" active={hidden} onClick={hideSelection} menu={[{ label: "Hide Selection", action: hideSelection }, { label: "Hide Unselected", action: () => { object.traverse((item) => { if (item instanceof THREE.Mesh) item.visible = item === selectedMesh; }); setHidden(true); commit("Unselected geometry hidden"); } }, { label: "Show Hidden", action: showHidden }, { label: "Vibration", action: () => navigator.vibrate?.(30) }]}><Eye /></ToolButton>
+      <ToolButton label="Hide selection" active={hidden} onClick={hideSelection} menu={[{ label: "Hide Selection", icon: <EyeClosed />, disabled: !selectedMesh, action: hideSelection }, { label: "Hide Unselected", icon: <EyeOff />, disabled: !selectedMesh, action: hideUnselected }, { label: "Show Hidden", icon: <Eye />, action: showHidden }, { label: "Vibration", icon: <Vibrate />, checked: vibrationEnabled, separated: true, action: toggleVibration }]}><Eye /></ToolButton>
       <ToolButton label="Element type" active menu={[...["Vertex", "Segment", "Polygon", "Island"].map((label) => ({ label, active: elementType === label, action: () => { setElementType(label as ElementType); setSelection((cur) => cur ? { ...cur, element: label as ElementType } : cur); } })), { label: "Clear Selection", disabled: !selection, action: () => setSelection(null) }]}><BoxSelect /></ToolButton>
       {tab === "view" ? <ToolButton label="Selection mode" menu={["Select", "Add", "Remove"].map((label) => ({ label, active: selectionMode === label, action: () => setSelectionMode(label) }))}><MousePointer2 /></ToolButton> : <ToolButton label="Transform" menu={["Select", "Move", "Rotate", "Scale"].map((label) => ({ label, active: transformMode === label, action: () => setTransformMode(label as TransformMode) }))}>{transformMode === "Move" ? <Move /> : transformMode === "Rotate" ? <RotateCcw /> : <MousePointer2 />}</ToolButton>}
       {tab === "view" && <ToolButton label="Toggle wireframe" active={wireframe} onClick={toggleWireframe} menu={[{ label: wireframe ? "Wireframe Off" : "Wireframe On", active: wireframe, action: toggleWireframe }, { label: "Opacity 0.75", action: () => setNotice("Wireframe opacity set") }, { label: "Front facing only", action: () => setNotice("Front-facing picking on") }, { label: "X-ray (no limits)", action: toggleWireframe }]}><Grid2X2 /></ToolButton>}
       {tab === "view" && <ToolButton label="View mode" onClick={() => setView(view === "ortho" ? "persp" : "ortho")} menu={viewMenu}><Focus /></ToolButton>}
       <ToolButton label="Mapping" active menu={mapMenu} onClick={() => applyMapping(mapping)}><Map /></ToolButton>
-      {tab === "view" ? <ToolButton label="Cut seams" onClick={() => { navigator.vibrate?.(25); setNotice("Seams marked for the next unwrap"); }}><Scissors /></ToolButton> : <ToolButton label="Repack islands" onClick={() => applyMapping("Auto Unwrap")} menu={[{ label: "Margin 8 px", action: () => setNotice("Island margin set to 8 px") }, { label: "Repack Islands", action: () => applyMapping("Auto Unwrap") }]}><Grid2X2 /></ToolButton>}
+      {tab === "view" ? <ToolButton label="Cut seams" onClick={() => { if (vibrationEnabled) navigator.vibrate?.(25); setNotice("Seams marked for the next unwrap"); }}><Scissors /></ToolButton> : <ToolButton label="Repack islands" onClick={() => applyMapping("Auto Unwrap")} menu={[{ label: "Margin 8 px", action: () => setNotice("Island margin set to 8 px") }, { label: "Repack Islands", action: () => applyMapping("Auto Unwrap") }]}><Grid2X2 /></ToolButton>}
       {tab === "uvw" && <ToolButton label="Texture background" menu={[{ label: "Checkerboard", active: uvBackground === "checker", action: () => setUvBackground("checker") }, { label: "Default Grid", active: uvBackground === "grid", action: () => setUvBackground("grid") }, { label: "Texture", disabled: !textureUrl, active: uvBackground === "texture", action: () => setUvBackground("texture") }, { label: "Colour", active: uvBackground === "colour", action: () => colourInput.current?.click() }, { label: "Materials", action: () => setMaterialsOpen(true) }]}><ImageIcon /></ToolButton>}
       <ToolButton label="Zoom" onClick={() => { if (tab === "uvw") resetUvView(); else setFocusNonce((value) => value + 1); }} menu={tab === "uvw" ? [{ label: "Reset View", action: resetUvView }, { label: "Zoom Extents", action: resetUvView }] : [{ label: "Zoom Extents", action: () => setFocusNonce((value) => value + 1) }, { label: "Zoom Selected", disabled: !selectedMesh, action: () => setFocusNonce((value) => value + 1) }]}><ZoomIn /></ToolButton>
       <ToolButton label="Undo" disabled={!history.length} onClick={undo}><Undo2 /></ToolButton>
