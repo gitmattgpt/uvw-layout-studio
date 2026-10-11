@@ -3,7 +3,12 @@ import * as THREE from "three";
 export type ElementType = "Vertex" | "Segment" | "Polygon" | "Island";
 export type SelectionMode = "Select" | "Add" | "Remove";
 export type SelectedEdge = [number, number];
-export type SelectionHit = { faces?: number[]; vertices?: number[]; edges?: SelectedEdge[] };
+export type SelectionHit = {
+  faces?: number[];
+  vertices?: number[];
+  edges?: SelectedEdge[];
+  islandFaces?: number[];
+};
 /** A selection is stored by mesh order and component indices so it survives clones and tab switches. */
 export type Selection = {
   mesh: number;
@@ -182,7 +187,9 @@ export function updateSelection(
   }
   let pickedFaces = uniqueNumbers(hit.faces ?? []);
   if (element === "Island")
-    pickedFaces = uniqueNumbers(pickedFaces.flatMap((face) => islandFaces(mesh.geometry, face)));
+    pickedFaces = uniqueNumbers(
+      hit.islandFaces ?? pickedFaces.flatMap((face) => islandFaces(mesh.geometry, face)),
+    );
   const faces = uniqueNumbers(combine(base?.faces ?? [], pickedFaces, mode, String));
   return faces.length ? { mesh: meshIndex, element, faces, vertices: [], edges: [] } : null;
 }
