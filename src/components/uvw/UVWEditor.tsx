@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from "react";
 import {
-  Box, Check, ChevronDown, CircleDot, CircleMinus, CirclePlus, Copy, Download, Eye, EyeClosed, EyeOff, Focus, Grid2X2, Grid3X3, Image as ImageIcon, Layers3,
+  Box, Check, ChevronDown, CircleMinus, CirclePlus, Copy, Dot, Download, Eye, EyeClosed, EyeOff, Focus, Grid2X2, Grid3X3, Image as ImageIcon, Layers3,
   Lock, Map, Minus, MousePointer2, Move, MoveHorizontal, MoveVertical, Palette, Pentagon, Redo2, RotateCcw, Scissors, Shapes, Scaling, Trash2, Triangle, Undo2, Unlock, Upload, Vibrate, X, ZoomIn,
 } from "lucide-react";
 import * as THREE from "three";
@@ -365,7 +365,7 @@ export function UVWEditor() {
       setNotice("Text export failed");
     }
   };
-  const elementIcons: Record<ElementType, ReactNode> = { Vertex: <CircleDot />, Segment: <Minus />, Polygon: <Triangle />, Island: <Pentagon /> };
+  const elementIcons: Record<ElementType, ReactNode> = { Vertex: <Dot />, Segment: <Minus />, Polygon: <Triangle />, Island: <Pentagon /> };
   const selectionModeIcons: Record<SelectionMode, ReactNode> = { Select: <MousePointer2 />, Add: <CirclePlus />, Remove: <CircleMinus /> };
   const transformIcon: ReactNode = transformMode === "Move" ? transformAxis === "x" ? <MoveHorizontal /> : transformAxis === "y" ? <MoveVertical /> : <Move />
     : transformMode === "Rotate" ? <RotateCcw /> : transformMode === "Scale" ? transformAxis === "x" ? <MoveHorizontal /> : transformAxis === "y" ? <MoveVertical /> : <Scaling />
@@ -396,7 +396,7 @@ export function UVWEditor() {
     { label: "Stretch to fit", icon: <Scaling />, active: planarStretch, action: () => { setPlanarStretch(true); applyMapping("Planar", planarAxis, true); } },
     { label: "Maintain ratio", icon: <Scaling />, active: !planarStretch, action: () => { setPlanarStretch(false); applyMapping("Planar", planarAxis, false); } },
     { label: "Box", icon: <Grid2X2 />, active: mapping === "Box", action: () => applyMapping("Box") },
-    { label: "Cylindrical", icon: <CircleDot />, active: mapping === "Cylindrical", action: () => applyMapping("Cylindrical") },
+    { label: "Cylindrical", icon: <Dot />, active: mapping === "Cylindrical", action: () => applyMapping("Cylindrical") },
     { label: "Auto Unwrap", icon: <Scissors />, active: mapping === "Auto Unwrap", action: () => applyMapping("Auto Unwrap") },
     { label: "Original", icon: <Undo2 />, active: mapping === "Original", disabled: !hasOriginalUVs, action: () => applyMapping("Original") },
     { label: "Unfold Box", icon: <Grid2X2 />, separated: true, action: () => applyMapping("Box") },
