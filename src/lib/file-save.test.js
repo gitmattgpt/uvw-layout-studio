@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
 import { downloadBlob, saveFile } from "./file-save";
 
-afterEach(() => { delete (globalThis as Record<string, unknown>).window; delete (globalThis as Record<string, unknown>).document; });
+afterEach(() => { delete (globalThis).window; delete (globalThis).document; });
 
 test("regular downloads preserve every supported native file extension", () => {
-  const saved: string[] = [];
+  const saved = [];
   const anchor = { href: "", download: "", click: () => saved.push(anchor.download), remove: () => {} };
   Object.assign(globalThis, {
     document: { createElement: () => anchor, body: { appendChild: () => {} } },
@@ -18,11 +18,11 @@ test("regular downloads preserve every supported native file extension", () => {
 
 test("Save to Files writes the original binary blob and filename", async () => {
   let name = "";
-  let written: Blob | undefined;
+  let written;
   let closed = false;
-  Object.assign(globalThis, { window: { showSaveFilePicker: async (options: { suggestedName: string }) => {
+  Object.assign(globalThis, { window: { showSaveFilePicker: async (options) => {
     name = options.suggestedName;
-    return { createWritable: async () => ({ write: async (blob: Blob) => { written = blob; }, close: async () => { closed = true; } }) };
+    return { createWritable: async () => ({ write: async (blob) => { written = blob; }, close: async () => { closed = true; } }) };
   } } });
   const blob = new Blob([new Uint8Array([0, 255, 42])], { type: "model/gltf-binary" });
   await saveFile(blob, "model.glb");
