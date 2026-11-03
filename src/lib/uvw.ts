@@ -8,8 +8,6 @@ import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { OBJExporter } from "three/examples/jsm/exporters/OBJExporter.js";
-import { PLYExporter } from "three/examples/jsm/exporters/PLYExporter.js";
-import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 
 export type PrimitiveName = "Box" | "Sphere" | "Cylinder" | "Torus" | "Knot" | "Plane";
 
@@ -209,12 +207,7 @@ function buildCadScene(result: OcctResult) {
   return buildNode(result.root);
 }
 
-export type LoadedModel = {
-  scene: THREE.Object3D;
-  animations?: THREE.AnimationClip[];
-  format: "obj" | "glb" | "gltf" | "stl" | "3mf" | "fbx" | "ply" | "dae" | "step" | "iges";
-  sourceName: string;
-};
+export type LoadedModel = { scene: THREE.Object3D; format: "obj" | "glb" | "gltf" | "stl" | "3mf" | "fbx" | "ply" | "dae" | "step" | "iges"; sourceName: string };
 
 function waitForManagerResources(manager: THREE.LoadingManager) {
   let started = false;
@@ -271,7 +264,7 @@ export async function loadModel(files: File[]): Promise<LoadedModel> {
         const loader = new GLTFLoader(manager).setDRACOLoader(dracoLoader);
         if (ktx2Loader) loader.setKTX2Loader(ktx2Loader);
         const gltf = await loader.parseAsync(await primary.file.arrayBuffer(), primary.path.includes("/") ? `${primary.path.slice(0, primary.path.lastIndexOf("/"))}/` : "");
-        return { scene: gltf.scene, animations: gltf.animations, format: extension, sourceName: primary.file.name };
+        return { scene: gltf.scene, format: extension, sourceName: primary.file.name };
       } finally {
         dracoLoader.dispose();
         ktx2Loader?.dispose();
@@ -299,7 +292,7 @@ export async function loadModel(files: File[]): Promise<LoadedModel> {
       const directory = primary.path.includes("/") ? `${primary.path.slice(0, primary.path.lastIndexOf("/"))}/` : "";
       const scene = new FBXLoader(manager).parse(await primary.file.arrayBuffer(), directory);
       await waitForTextures();
-      return { scene, animations: scene.animations, format: "fbx", sourceName: primary.file.name };
+      return { scene, format: "fbx", sourceName: primary.file.name };
     }
     if (extension === "ply") {
       const { PLYLoader } = await import("three/examples/jsm/loaders/PLYLoader.js");
@@ -317,7 +310,7 @@ export async function loadModel(files: File[]): Promise<LoadedModel> {
       const collada = new ColladaLoader(manager).parse(await primary.file.text(), directory);
       if (!collada?.scene) throw new Error("The COLLADA file could not be parsed.");
       await waitForTextures();
-      return { scene: collada.scene, animations: collada.scene.animations, format: "dae", sourceName: primary.file.name };
+      return { scene: collada.scene, format: "dae", sourceName: primary.file.name };
     }
     if (["step", "stp", "iges", "igs"].includes(extension)) {
       const importer = await loadOcctImporter();
@@ -332,9 +325,8 @@ export async function loadModel(files: File[]): Promise<LoadedModel> {
   }
 }
 
-export function normalizeModel(source: THREE.Object3D, animations: THREE.AnimationClip[] = source.animations): THREE.Group {
+export function normalizeModel(source: THREE.Object3D): THREE.Group {
   const group = new THREE.Group();
-  group.animations = [...animations];
   group.add(source);
   const box = new THREE.Box3().setFromObject(group);
   const size = box.getSize(new THREE.Vector3());
@@ -552,36 +544,12 @@ export function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-export async function exportGlb(root: THREE.Object3D, filename = "uvw-model.glb") {
+export async function exportGlb(root: THREE.Object3D) {
   const data = await new GLTFExporter().parseAsync(root, { binary: true });
-  downloadBlob(new Blob([data as ArrayBuffer], { type: "model/gltf-binary" }), filename);
+  downloadBlob(new Blob([data as ArrayBuffer], { type: "model/gltf-binary" }), "uvw-model.glb");
 }
 
-export async function exportFbx(root: THREE.Object3D, filename = "uvw-model.fbx") {
-  const { FBXExporter } = await import("@comfyorg/fbx-exporter-three");
-  const bytes = await new FBXExporter().parseAsync(root);
-  const buffer = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(buffer).set(bytes);
-  downloadBlob(new Blob([buffer], { type: "application/octet-stream" }), filename);
-}
-
-export async function exportGltf(root: THREE.Object3D, filename = "uvw-model.gltf") {
-  const data = await new GLTFExporter().parseAsync(root, { binary: false });
-  downloadBlob(new Blob([JSON.stringify(data)], { type: "model/gltf+json" }), filename);
-}
-
-export function exportObj(root: THREE.Object3D, filename = "uvw-model.obj") {
+export function exportObj(root: THREE.Object3D) {
   const source = new OBJExporter().parse(root);
-  downloadBlob(new Blob([source], { type: "text/plain;charset=utf-8" }), filename);
-}
-
-export function exportStl(root: THREE.Object3D, filename = "uvw-model.stl") {
-  const data = new STLExporter().parse(root, { binary: true });
-  downloadBlob(new Blob([data], { type: "model/stl" }), filename);
-}
-
-export function exportPly(root: THREE.Object3D, filename = "uvw-model.ply") {
-  const data = new PLYExporter().parse(root, () => undefined, { binary: false });
-  if (typeof data !== "string") throw new Error("Could not create the ASCII PLY export.");
-  downloadBlob(new Blob([data], { type: "application/octet-stream" }), filename);
+  downloadBlob(new Blob([source], { type: "text/plain" }), "uvw-model.obj");
 }
