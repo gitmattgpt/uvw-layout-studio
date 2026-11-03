@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from "react";
 import {
-  Box, Check, ChevronDown, CircleDot, CircleMinus, CirclePlus, Copy, Download, Eye, EyeClosed, EyeOff, Focus, Grid2X2, Grid3X3, Image as ImageIcon, Layers3,
+  Box, Check, ChevronDown, CircleDot, CircleMinus, CirclePlus, Download, Eye, EyeClosed, EyeOff, Focus, Grid2X2, Grid3X3, Image as ImageIcon, Layers3,
   Lock, Map, Minus, MousePointer2, Move, MoveHorizontal, MoveVertical, Palette, Pentagon, Redo2, RotateCcw, Scissors, Shapes, Scaling, Trash2, Triangle, Undo2, Unlock, Upload, Vibrate, X, ZoomIn,
 } from "lucide-react";
 import * as THREE from "three";
@@ -11,10 +11,12 @@ import { applyMeshVisibilityAction, convertSelectionElement, faceVertex, getMesh
 import { UVWorkspace, fitUVView, type UVBackground, type UVTransformAxis, type UVTransformMode, type UVView } from "./UVWorkspace";
 import { applyUvProjection, packUvIslands, rememberOriginalUvs, transformSelectedUvs, type UVAxis, type UVProjection } from "@/lib/uv-tools";
 import {
-  applyTexture, applyTextureToSlot, createCheckerTexture, createModelExportText, downloadBlob,
+  applyTexture, applyTextureToSlot, createCheckerTexture,
   exportFbx, exportGlb, exportGltf, exportObj, exportPly, exportStl, getStats, hasBaseColorTexture, loadModel,
-  normalizeModel, primitiveGeometry, type PrimitiveName, type TextModelFormat,
+  normalizeModel, primitiveGeometry, type PrimitiveName,
 } from "../../lib/uvw";
+
+import { downloadBlob, saveFile, type ExportFileSink } from "@/lib/file-save";
 
 type Tab = "import" | "view" | "uvw" | "export";
 type MaterialMode = "gltf" | "obj";
@@ -303,15 +305,35 @@ export function UVWEditor() {
     undoTapTimer.current = window.setTimeout(() => { undoTapTimer.current = null; undo(); }, 260);
   };
   useEffect(() => () => { if (undoTapTimer.current !== null) window.clearTimeout(undoTapTimer.current); }, []);
+  const [exporting, setExporting] = useState(false);
+  const [preparedExport, setPreparedExport] = useState<{ blob: Blob; filename: string } | null>(null);
   const exportFileStem = modelName.replace(/\.[^.]+$/, "").trim().replace(/[^a-zA-Z0-9._-]+/g, "-") || "uvw-model";
-  const downloadUv = () => uvCanvasRef.current?.toBlob((blob) => { if (blob) downloadBlob(blob, `${exportFileStem}-uv.png`); }, "image/png");
-  const downloadFbx = async () => {
-    setError(null); setNotice("Exporting FBX…");
-    try { await exportFbx(object, `${exportFileStem}.fbx`); setNotice("FBX exported"); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : "Could not export FBX."); setNotice("FBX export failed"); }
+  const prepareExport = async (produce: (sink: ExportFileSink) => void | Promise<void>) => {
+    setExporting(true); setError(null); setPreparedExport(null); setNotice("Preparing export…");
+    try {
+      await produce((blob, filename) => { setPreparedExport({ blob, filename }); setNotice("File ready to save"); });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not export this file."); setNotice("Export failed");
+    } finally { setExporting(false); }
   };
+  const savePrepared = async () => {
+    if (!preparedExport) return;
+    try { await saveFile(preparedExport.blob, preparedExport.filename); setNotice("File sent to save"); setPreparedExport(null); }
+    catch (caught) {
+      if (caught instanceof Error && caught.name === "AbortError") return;
+      setError("Could not open file saving. Use Download instead.");
+    }
+  };
+  const downloadUv = (sink: ExportFileSink) => new Promise<void>((resolve, reject) => {
+    const canvas = uvCanvasRef.current;
+    if (!canvas) { reject(new Error("UV layout is not ready.")); return; }
+    canvas.toBlob((blob) => {
+      if (!blob) { reject(new Error("Could not create the UV PNG.")); return; }
+      sink(blob, `${exportFileStem}-uv.png`); resolve();
+    }, "image/png");
+  });
   const confirmTexture = (action: () => void) => { if (textureFile || hasBaseColorTexture(object) || window.confirm("No texture is loaded. Continue without an imported texture?")) action(); else textureInput.current?.click(); };
-  const downloadObjZip = async () => {
+  const downloadObjZip = async (sink: ExportFileSink) => {
     const zip = new JSZip();
     const objName = `${exportFileStem}.obj`;
     const mtlName = `${exportFileStem}.mtl`;
@@ -324,46 +346,7 @@ export function UVWEditor() {
     zip.file(objName, source);
     zip.file(mtlName, mtl);
     if (textureFile) zip.file(textureName, textureFile);
-    downloadBlob(await zip.generateAsync({ type: "blob" }), `${exportFileStem}-obj.zip`);
-  };
-  const copyTextExport = async (format: TextModelFormat) => {
-    setNotice(`Preparing ${format.toUpperCase()} text…`);
-    try {
-      const text = await createModelExportText(object, format);
-      const sizeBytes = new Blob([text]).size;
-      if (sizeBytes > 1024 * 1024 && !window.confirm(`This text export is ${(sizeBytes / (1024 * 1024)).toFixed(1)} MB. It may be too large for Aippy’s paste field or your clipboard. Continue?`)) return;
-      downloadBlob(new Blob([text], { type: "text/plain;charset=utf-8" }), `${exportFileStem}-${format}-text.txt`);
-      let copied = false;
-      try {
-        if (navigator.clipboard?.writeText) {
-          await navigator.clipboard.writeText(text);
-          copied = true;
-        }
-      } catch {
-        // Fall through to the legacy copy method for browsers with clipboard restrictions.
-      }
-      if (!copied) {
-        const field = document.createElement("textarea");
-        field.value = text;
-        field.setAttribute("readonly", "");
-        field.style.position = "fixed";
-        field.style.opacity = "0";
-        document.body.appendChild(field);
-        try {
-          field.focus();
-          field.select();
-          copied = document.execCommand("copy");
-        } catch {
-          copied = false;
-        } finally {
-          field.remove();
-        }
-      }
-      setNotice(copied ? `${format.toUpperCase()} text copied and saved as TXT` : `TXT saved; clipboard copy failed—open the file and copy its text`);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not create the text export.");
-      setNotice("Text export failed");
-    }
+    sink(await zip.generateAsync({ type: "blob", mimeType: "application/zip" }), `${exportFileStem}-obj.zip`);
   };
   const elementIcons: Record<ElementType, ReactNode> = { Vertex: <CircleDot />, Segment: <Minus />, Polygon: <Triangle />, Island: <Pentagon /> };
   const selectionModeIcons: Record<SelectionMode, ReactNode> = { Select: <MousePointer2 />, Add: <CirclePlus />, Remove: <CircleMinus /> };
@@ -494,26 +477,24 @@ export function UVWEditor() {
       /> </div>}
       {tab === "export" && <div className="export-panel">
         <span className="eyebrow">04 / OUTPUT</span><h1>Export</h1>
-        <p>Choose a file format. Texture, UV, and material support differs by format; text copies may be large.</p>
+        <p>Choose a file format. Texture, UV, and material support differs by format.</p>
         {error && <div className="error-banner" role="alert">{error}</div>}
-        <div className="export-list">
-          <button type="button" onClick={() => confirmTexture(() => void exportGlb(object, `${exportFileStem}.glb`))}><Box /><span><strong>GLB (.glb)</strong><small>Single-file model with UVs and supported materials/textures</small></span><Download /></button>
-          <button type="button" onClick={() => confirmTexture(() => void downloadFbx())}><Box /><span><strong>FBX (.fbx)</strong><small>Binary; includes bones, skin weights, and imported animation clips when present. PBR materials convert to FBX Phong.</small></span><Download /></button>
-          <button type="button" onClick={() => confirmTexture(() => void copyTextExport("glb"))}><Copy /><span><strong>GLB as text (.txt)</strong><small>Base64 data URI; the receiving app must decode it</small></span><Download /></button>
-          <button type="button" onClick={() => confirmTexture(() => void exportGltf(object, `${exportFileStem}.gltf`))}><Box /><span><strong>glTF JSON (.gltf)</strong><small>Text-based JSON with embedded geometry and images</small></span><Download /></button>
-          <button type="button" onClick={() => confirmTexture(() => void copyTextExport("gltf"))}><Copy /><span><strong>glTF JSON as text (.txt)</strong><small>Copy and download the JSON text for pasting</small></span><Download /></button>
-          <button type="button" onClick={() => exportObj(object, `${exportFileStem}.obj`)}><Box /><span><strong>OBJ (.obj)</strong><small>Plain-text mesh with UVs/normals; no embedded texture</small></span><Download /></button>
-          <button type="button" onClick={() => void copyTextExport("obj")}><Copy /><span><strong>OBJ as text (.txt)</strong><small>Copy and download the same OBJ text</small></span><Download /></button>
-          <button type="button" onClick={() => confirmTexture(() => void downloadObjZip())}><Box /><span><strong>OBJ + MTL + texture (.zip)</strong><small>OBJ package with the uploaded base-color image, if any</small></span><Download /></button>
-          <button type="button" onClick={() => exportStl(object, `${exportFileStem}.stl`)}><Box /><span><strong>STL (.stl)</strong><small>Binary surface geometry only; no UVs, textures, or units</small></span><Download /></button>
-          <button type="button" onClick={() => exportPly(object, `${exportFileStem}.ply`)}><Box /><span><strong>PLY ASCII (.ply)</strong><small>Mesh attributes and UVs where present; no texture images</small></span><Download /></button>
-          <button type="button" onClick={downloadUv}><ImageIcon /><span><strong>UV Layout PNG</strong><small>1024 × 1024 wireframe preview</small></span><Download /></button>
-        </div>
+        <fieldset className="export-list" disabled={exporting} style={{ border: 0, padding: 0, margin: 0 }}>
+          <button type="button" onClick={() => confirmTexture(() => void prepareExport((sink) => exportGlb(object, `${exportFileStem}.glb`, sink)))}><Box /><span><strong>GLB (.glb)</strong><small>Single-file model with UVs and supported materials/textures</small></span><Download /></button>
+          <button type="button" onClick={() => confirmTexture(() => void prepareExport((sink) => exportFbx(object, `${exportFileStem}.fbx`, sink)))}><Box /><span><strong>FBX (.fbx)</strong><small>Binary; includes bones, skin weights, and imported animation clips when present. PBR materials convert to FBX Phong.</small></span><Download /></button>
+          <button type="button" onClick={() => confirmTexture(() => void prepareExport((sink) => exportGltf(object, `${exportFileStem}.gltf`, sink)))}><Box /><span><strong>glTF JSON (.gltf)</strong><small>Text-based JSON with embedded geometry and images</small></span><Download /></button>
+          <button type="button" onClick={() => prepareExport((sink) => exportObj(object, `${exportFileStem}.obj`, sink))}><Box /><span><strong>OBJ (.obj)</strong><small>Plain-text mesh with UVs/normals; no embedded texture</small></span><Download /></button>
+          <button type="button" onClick={() => confirmTexture(() => void prepareExport(downloadObjZip))}><Box /><span><strong>OBJ + MTL + texture (.zip)</strong><small>OBJ package with the uploaded base-color image, if any</small></span><Download /></button>
+          <button type="button" onClick={() => prepareExport((sink) => exportStl(object, `${exportFileStem}.stl`, sink))}><Box /><span><strong>STL (.stl)</strong><small>Binary surface geometry only; no UVs, textures, or units</small></span><Download /></button>
+          <button type="button" onClick={() => prepareExport((sink) => exportPly(object, `${exportFileStem}.ply`, sink))}><Box /><span><strong>PLY ASCII (.ply)</strong><small>Mesh attributes and UVs where present; no texture images</small></span><Download /></button>
+          <button type="button" onClick={() => void prepareExport(downloadUv)}><ImageIcon /><span><strong>UV Layout PNG</strong><small>1024 × 1024 wireframe preview</small></span><Download /></button>
+        </fieldset>
         <p className="stats">{modelName} · {stats.faces.toLocaleString()} faces · {stats.vertices.toLocaleString()} verts</p>
         <div className="hidden-canvas"><UVCanvas object={object} hiddenFaces={hiddenUvFaces} textureUrl={textureUrl} background={uvBackground} colour={uvColour} canvasRef={uvCanvasRef} uvNonce={history.length + future.length} uvView={DEFAULT_UV_VIEW} /></div>
       </div>}
     </section>
     <input ref={modelInput} className="sr-only" type="file" multiple onChange={(event) => void onModel(event)} /><input ref={textureInput} className="sr-only" type="file" accept="image/*" onChange={onTexture} /><input ref={slotInput} className="sr-only" type="file" accept="image/*" onChange={onSlotTexture} /><input ref={colourInput} className="sr-only" type="color" value={uvColour} onChange={(event) => { setUvColour(event.target.value); setUvBackground("colour"); }} />
+    {preparedExport && <div className="modal-scrim"><section className="texture-prompt" role="dialog" aria-modal="true" aria-labelledby="save-export-title"><h2 id="save-export-title">Save export</h2><p>{preparedExport.filename}</p>{error && <p role="alert">{error}</p>}<div className="texture-prompt-actions"><button type="button" className="texture-prompt-primary" onClick={() => void savePrepared()}>Save to Files</button><button type="button" className="texture-prompt-secondary" onClick={() => { downloadBlob(preparedExport.blob, preparedExport.filename); setNotice("Download started"); setPreparedExport(null); }}>Download</button><button type="button" className="texture-prompt-secondary" onClick={() => setPreparedExport(null)}>Cancel</button></div></section></div>}
     {texturePrompt && <div className="modal-scrim texture-prompt-scrim"><section className="texture-prompt" role="dialog" aria-modal="true" aria-labelledby="texture-prompt-title" aria-describedby="texture-prompt-description"><span className="eyebrow">TEXTURE</span><h2 id="texture-prompt-title">Add a texture?</h2><p id="texture-prompt-description">This model has no active texture. Choose an image from Files or Photos to apply it to the model.</p><div className="texture-prompt-actions"><button type="button" className="texture-prompt-secondary" onClick={() => setTexturePrompt(false)}>Not now</button><button type="button" className="texture-prompt-primary" onClick={() => { setTexturePrompt(false); textureInput.current?.click(); }}>Choose texture</button></div></section></div>}
     {materialsOpen && <div className="modal-scrim" onMouseDown={(event) => { if (event.currentTarget === event.target) setMaterialsOpen(false); }}><section className="materials-modal" role="dialog" aria-modal="true" aria-labelledby="materials-title"><header><div><h2 id="materials-title"><Layers3 />Materials</h2><p>Assign textures to material slots and choose which slot drives the active UVW texture.</p></div><button type="button" onClick={() => setMaterialsOpen(false)} aria-label="Close materials"><X /></button></header><div className="mode-switch"><button type="button" className={materialMode === "gltf" ? "is-active" : ""} onClick={() => setMaterialMode("gltf")}>GLB / glTF (PBR)</button><button type="button" className={materialMode === "obj" ? "is-active" : ""} onClick={() => setMaterialMode("obj")}>OBJ / MTL</button></div><div className="slot-list">{(materialMode === "gltf" ? gltfSlots : objSlots).map(([label, detail]) => { const key = textureSlotKey(materialMode, label); const asset = slots[key]; return <div className="slot-row" key={key}><button className={`slot-select ${activeSlot === key && asset ? "is-active" : ""}`} type="button" disabled={!asset} onClick={() => { if (!asset) return; const assigned = applyTextureToSlot(object, materialMode, label, asset.texture); if (!assigned) { setError(`${label} is not supported by the current model material.`); return; } setActiveSlot(key); setTextureUrl(asset.url); if (isBaseColorSlot(materialMode, label)) { setTexture(asset.texture); setTextureFile(asset.file); } commit(`${label} texture applied`); }} aria-label={`Use ${label} for UV preview`} />{asset && <img className="slot-thumbnail" src={asset.url} alt="" />}<div><strong>{label}</strong><span>{detail}</span></div>{asset && <button className="slot-clear" type="button" aria-label={`Clear ${label}`} onClick={() => { checkpoint(); applyTextureToSlot(object, materialMode, label, null); revokeTextureObjectUrl(asset.url); setSlots((current) => { const next = { ...current }; delete next[key]; return next; }); if (activeSlot === key) { if (isBaseColorSlot(materialMode, label)) { setTexture(null); setTextureFile(null); } setTextureUrl(null); } commit(`${label} texture cleared`); }}><Trash2 /></button>}<button className="slot-upload" type="button" onClick={() => { setPendingSlot({ mode: materialMode, label }); slotInput.current?.click(); }} aria-label={`Assign texture to ${label}`}><Upload /></button></div>; })}</div><footer>Active UVW texture: {activeSlot.split(":").slice(1).join(":")}{slots[activeSlot] ? ` · ${slots[activeSlot].file.name}` : " · none"}</footer></section></div>}
   </main>;
