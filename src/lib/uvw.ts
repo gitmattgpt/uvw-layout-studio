@@ -545,40 +545,43 @@ export function getFirstGeometry(root: THREE.Object3D) {
   return geometry as THREE.BufferGeometry | null;
 }
 
-export { downloadBlob } from "./file-save";
-import { downloadBlob, type ExportFileSink } from "./file-save";
-
-export async function exportGlb(root: THREE.Object3D, filename = "uvw-model.glb", sink: ExportFileSink = downloadBlob) {
-  const data = await new GLTFExporter().parseAsync(root, { binary: true });
-  sink(new Blob([data as ArrayBuffer], { type: "model/gltf-binary" }), filename);
+export function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url; anchor.download = filename; anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-export async function exportFbx(root: THREE.Object3D, filename = "uvw-model.fbx", sink: ExportFileSink = downloadBlob) {
+export async function exportGlb(root: THREE.Object3D, filename = "uvw-model.glb") {
+  const data = await new GLTFExporter().parseAsync(root, { binary: true });
+  downloadBlob(new Blob([data as ArrayBuffer], { type: "model/gltf-binary" }), filename);
+}
+
+export async function exportFbx(root: THREE.Object3D, filename = "uvw-model.fbx") {
   const { FBXExporter } = await import("@comfyorg/fbx-exporter-three");
   const bytes = await new FBXExporter().parseAsync(root);
   const buffer = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(buffer).set(bytes);
-  sink(new Blob([buffer], { type: "application/octet-stream" }), filename);
+  downloadBlob(new Blob([buffer], { type: "application/octet-stream" }), filename);
 }
 
-export async function exportGltf(root: THREE.Object3D, filename = "uvw-model.gltf", sink: ExportFileSink = downloadBlob) {
+export async function exportGltf(root: THREE.Object3D, filename = "uvw-model.gltf") {
   const data = await new GLTFExporter().parseAsync(root, { binary: false });
-  sink(new Blob([JSON.stringify(data)], { type: "model/gltf+json" }), filename);
+  downloadBlob(new Blob([JSON.stringify(data)], { type: "model/gltf+json" }), filename);
 }
 
-export function exportObj(root: THREE.Object3D, filename = "uvw-model.obj", sink: ExportFileSink = downloadBlob) {
+export function exportObj(root: THREE.Object3D, filename = "uvw-model.obj") {
   const source = new OBJExporter().parse(root);
-  sink(new Blob([source], { type: "model/obj" }), filename);
+  downloadBlob(new Blob([source], { type: "text/plain;charset=utf-8" }), filename);
 }
 
-export function exportStl(root: THREE.Object3D, filename = "uvw-model.stl", sink: ExportFileSink = downloadBlob) {
+export function exportStl(root: THREE.Object3D, filename = "uvw-model.stl") {
   const data = new STLExporter().parse(root, { binary: true });
-  sink(new Blob([data], { type: "model/stl" }), filename);
+  downloadBlob(new Blob([data], { type: "model/stl" }), filename);
 }
 
-export function exportPly(root: THREE.Object3D, filename = "uvw-model.ply", sink: ExportFileSink = downloadBlob) {
+export function exportPly(root: THREE.Object3D, filename = "uvw-model.ply") {
   const data = new PLYExporter().parse(root, () => undefined, { binary: false });
   if (typeof data !== "string") throw new Error("Could not create the ASCII PLY export.");
-  sink(new Blob([data], { type: "application/octet-stream" }), filename);
+  downloadBlob(new Blob([data], { type: "application/octet-stream" }), filename);
 }
-
