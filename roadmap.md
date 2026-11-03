@@ -9,3 +9,4 @@
 - [x] Verify mobile and desktop editor flows
 - [x] Implement the guide-defined controls and menus, excluding Help
 - [x] Verify import, editing, materials, and export flows
+- [x] Remove TXT copies and verify native-format exports and file saving

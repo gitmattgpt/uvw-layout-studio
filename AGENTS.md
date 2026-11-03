@@ -10,3 +10,4 @@
 <!-- LOVABLE:END -->
 
 - Keep the UVW editor client-only and browser-local because model parsing, textures, and downloads use browser file APIs and Three.js loaders.
+- Prepare exports before presenting save controls; use a fresh user click for native file saving/sharing and an attached download link with delayed URL cleanup as fallback, so mobile browsers retain file access and gesture permission.

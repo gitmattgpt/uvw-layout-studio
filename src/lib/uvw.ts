@@ -545,65 +545,40 @@ export function getFirstGeometry(root: THREE.Object3D) {
   return geometry as THREE.BufferGeometry | null;
 }
 
-export function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url; anchor.download = filename; anchor.click();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
+export { downloadBlob } from "./file-save";
+import { downloadBlob, type ExportFileSink } from "./file-save";
 
-export async function exportGlb(root: THREE.Object3D, filename = "uvw-model.glb") {
+export async function exportGlb(root: THREE.Object3D, filename = "uvw-model.glb", sink: ExportFileSink = downloadBlob) {
   const data = await new GLTFExporter().parseAsync(root, { binary: true });
-  downloadBlob(new Blob([data as ArrayBuffer], { type: "model/gltf-binary" }), filename);
+  sink(new Blob([data as ArrayBuffer], { type: "model/gltf-binary" }), filename);
 }
 
-export async function exportFbx(root: THREE.Object3D, filename = "uvw-model.fbx") {
+export async function exportFbx(root: THREE.Object3D, filename = "uvw-model.fbx", sink: ExportFileSink = downloadBlob) {
   const { FBXExporter } = await import("@comfyorg/fbx-exporter-three");
   const bytes = await new FBXExporter().parseAsync(root);
   const buffer = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(buffer).set(bytes);
-  downloadBlob(new Blob([buffer], { type: "application/octet-stream" }), filename);
+  sink(new Blob([buffer], { type: "application/octet-stream" }), filename);
 }
 
-export async function exportGltf(root: THREE.Object3D, filename = "uvw-model.gltf") {
+export async function exportGltf(root: THREE.Object3D, filename = "uvw-model.gltf", sink: ExportFileSink = downloadBlob) {
   const data = await new GLTFExporter().parseAsync(root, { binary: false });
-  downloadBlob(new Blob([JSON.stringify(data)], { type: "model/gltf+json" }), filename);
+  sink(new Blob([JSON.stringify(data)], { type: "model/gltf+json" }), filename);
 }
 
-export function exportObj(root: THREE.Object3D, filename = "uvw-model.obj") {
+export function exportObj(root: THREE.Object3D, filename = "uvw-model.obj", sink: ExportFileSink = downloadBlob) {
   const source = new OBJExporter().parse(root);
-  downloadBlob(new Blob([source], { type: "text/plain;charset=utf-8" }), filename);
+  sink(new Blob([source], { type: "model/obj" }), filename);
 }
 
-export function exportStl(root: THREE.Object3D, filename = "uvw-model.stl") {
+export function exportStl(root: THREE.Object3D, filename = "uvw-model.stl", sink: ExportFileSink = downloadBlob) {
   const data = new STLExporter().parse(root, { binary: true });
-  downloadBlob(new Blob([data], { type: "model/stl" }), filename);
+  sink(new Blob([data], { type: "model/stl" }), filename);
 }
 
-export function exportPly(root: THREE.Object3D, filename = "uvw-model.ply") {
+export function exportPly(root: THREE.Object3D, filename = "uvw-model.ply", sink: ExportFileSink = downloadBlob) {
   const data = new PLYExporter().parse(root, () => undefined, { binary: false });
   if (typeof data !== "string") throw new Error("Could not create the ASCII PLY export.");
-  downloadBlob(new Blob([data], { type: "application/octet-stream" }), filename);
+  sink(new Blob([data], { type: "application/octet-stream" }), filename);
 }
 
-export type TextModelFormat = "glb" | "gltf" | "obj";
-
-export async function createModelExportText(root: THREE.Object3D, format: TextModelFormat): Promise<string> {
-  if (format === "obj") return new OBJExporter().parse(root);
-
-  if (format === "gltf") {
-    const data = await new GLTFExporter().parseAsync(root, { binary: false });
-    return JSON.stringify(data);
-  }
-
-  const data = await new GLTFExporter().parseAsync(root, { binary: true });
-  const reader = new FileReader();
-  const blob = new Blob([data as ArrayBuffer], { type: "model/gltf-binary" });
-  return new Promise((resolve, reject) => {
-    reader.onload = () => typeof reader.result === "string"
-      ? resolve(reader.result)
-      : reject(new Error("Could not convert the GLB to Base64 text."));
-    reader.onerror = () => reject(reader.error ?? new Error("Could not convert the GLB to Base64 text."));
-    reader.readAsDataURL(blob);
-  });
-}
