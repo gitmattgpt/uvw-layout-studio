@@ -53,14 +53,17 @@ function useUVTouchGestures(frameRef: React.RefObject<HTMLDivElement | null>, uv
 
   const onTouchStart = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
     if (event.touches.length === 2) {
-      const dx = event.touches[0].clientX - event.touches[1].clientX;
-      const dy = event.touches[0].clientY - event.touches[1].clientY;
+      const first = event.touches[0];
+      const second = event.touches[1];
+      if (!first || !second) return;
+      const dx = first.clientX - second.clientX;
+      const dy = first.clientY - second.clientY;
       gestureRef.current = {
         mode: "pinch",
         startDist: Math.hypot(dx, dy),
         startZoom: uvView.zoom,
-        startX: (event.touches[0].clientX + event.touches[1].clientX) / 2,
-        startY: (event.touches[0].clientY + event.touches[1].clientY) / 2,
+        startX: (first.clientX + second.clientX) / 2,
+        startY: (first.clientY + second.clientY) / 2,
         startPanX: uvView.panX,
         startPanY: uvView.panY,
       };
@@ -73,11 +76,14 @@ function useUVTouchGestures(frameRef: React.RefObject<HTMLDivElement | null>, uv
     if (g.mode === "none" || event.touches.length !== 2) return;
     event.preventDefault();
 
-    const dx = event.touches[0].clientX - event.touches[1].clientX;
-    const dy = event.touches[0].clientY - event.touches[1].clientY;
+    const first = event.touches[0];
+    const second = event.touches[1];
+    if (!first || !second) return;
+    const dx = first.clientX - second.clientX;
+    const dy = first.clientY - second.clientY;
     const dist = Math.hypot(dx, dy);
-    const midX = (event.touches[0].clientX + event.touches[1].clientX) / 2;
-    const midY = (event.touches[0].clientY + event.touches[1].clientY) / 2;
+    const midX = (first.clientX + second.clientX) / 2;
+    const midY = (first.clientY + second.clientY) / 2;
 
     const scale = g.startDist > 0 ? dist / g.startDist : 1;
     const newZoom = Math.max(0.3, Math.min(8, g.startZoom * scale));
