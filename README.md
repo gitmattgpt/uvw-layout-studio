@@ -1,31 +1,16 @@
 # UVW Layout Studio
 
-A browser-based UV mapping editor for importing 3D models, assigning material textures, editing UVs, and exporting models.
+Make a UVW editor start with this layout as a template I will explain what each button function is afterwards. It should be able to import a 3d model OBJ. File or glb. Import texture. Create a UVW unwrapping. And export menu. Examine the images for position and layout and UI placement and color scheme.
 
-## Supported model imports
-
-- **OBJ** (`.obj`), with optional `.mtl` files and image textures
-- **glTF** (`.gltf`, `.glb`), including Draco-compressed geometry and KTX2 textures
-- **STL** (`.stl`)
-- **3D Manufacturing Format** (`.3mf`)
-- **Autodesk FBX** (`.fbx`)
-- **Stanford PLY** (`.ply`)
-- **COLLADA** (`.dae`)
-- **STEP** (`.step`, `.stp`) and **IGES** (`.iges`, `.igs`) CAD models
-
-For models that reference external files (including `.gltf`, OBJ/MTL, FBX, and COLLADA), select the model and its companion files together, or place the complete set in a `.zip` bundle. GLB and 3MF commonly package their resources inside the model file.
-
-STEP and IGES files are tessellated into triangle meshes for UV editing; parametric CAD solids/features are not retained. The OpenCascade-based WebAssembly parser is loaded only when a STEP or IGES file is imported (about 7.3 MB). Its license notices are included in `public/decoders/step/`.
-
-**`.3ma` is not currently supported.** If you meant `.3mf`, that format is supported.
+This project was built with [Lovable](https://lovable.dev).
 
 ## Build with Lovable
 
-This project was built with [Lovable](https://lovable.dev). Continue developing it in the [Lovable editor](https://lovable.dev/projects/75e66b2e-1dc2-474c-a77c-8c43a574ab7e).
+Continue developing this project in the [Lovable editor](https://lovable.dev/projects/75e66b2e-1dc2-474c-a77c-8c43a574ab7e).
 
 - **Ship faster**: describe what you want to build and Lovable handles the code.
 - **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: push to `main` on GitHub and your changes sync back into Lovable.
+- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
 
 ## Development
 
